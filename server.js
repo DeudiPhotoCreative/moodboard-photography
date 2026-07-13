@@ -285,7 +285,21 @@ app.get('/api/proxy-image', async (req, res) => {
     }
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`🚀 Server berjalan di port ${PORT}`));
 
+// ================= GLOBAL ERROR HANDLER =================
+// Menangkap semua error (termasuk dari Multer) agar selalu merespons JSON, BUKAN HTML
+app.use((err, req, res, next) => {
+    console.error("🔥 Express Error Tertangkap:", err);
+    res.status(500).json({ 
+        success: false, 
+        message: "Kegagalan Sistem: " + (err.message || "Terjadi kesalahan internal.") 
+    });
+});
+
+// ================= EXPORT & LISTENER =================
+const PORT = process.env.PORT || 3000;
+if (process.env.NODE_ENV !== 'production') {
+    app.listen(PORT, () => console.log(`🚀 Server berjalan di port ${PORT}`));
+}
 module.exports = app;
+
