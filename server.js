@@ -18,14 +18,14 @@ let isConnected = false;
 
 async function connectDB() {
     if (isConnected) return;
-    
+
     if (!process.env.MONGODB_URI) {
         throw new Error("MONGODB_URI belum diatur di Environment Variables Vercel!");
     }
 
     try {
         const db = await mongoose.connect(process.env.MONGODB_URI, {
-            serverSelectionTimeoutMS: 5000 // Timeout 5 detik agar tidak menggantung
+            serverSelectionTimeoutMS: 5000 // Timeout 5 detik
         });
         isConnected = db.connections[0].readyState === 1;
         console.log('✅ Berhasil terhubung ke MongoDB Atlas!');
@@ -35,15 +35,20 @@ async function connectDB() {
     }
 }
 
-// Middleware untuk memastikan DB terhubung sebelum API dipanggil
+// Middleware proteksi database & ANTI-CACHE VERCEL
 app.use('/api', async (req, res, next) => {
+    // Paksa browser & Vercel untuk TIDAK MEMBUAT CACHE agar data selalu real-time
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+
     try {
         await connectDB();
         next();
     } catch (error) {
-        res.status(500).json({ 
-            success: false, 
-            message: "Koneksi ke Database gagal: " + error.message 
+        res.status(500).json({
+            success: false,
+            message: "Koneksi ke Database gagal: " + error.message
         });
     }
 });
@@ -54,11 +59,11 @@ const Album = mongoose.model('Album', new mongoose.Schema({
 }, { versionKey: false }));
 
 const Category = mongoose.model('Category', new mongoose.Schema({
-    _id: String, name: String
+    _id: String, albumId: String, name: String
 }, { versionKey: false }));
 
 const Photo = mongoose.model('Photo', new mongoose.Schema({
-    _id: String, albumId: String, categoryId: String, caption: String, 
+    _id: String, albumId: String, categoryId: String, caption: String,
     megaLink: String, megaFileName: String
 }, { versionKey: false }));
 
@@ -136,7 +141,7 @@ app.get('/api/data', async (req, res) => {
         const categories = await Category.find().lean();
         const photos = await Photo.find().lean();
         const settings = await Setting.findById('global_settings').lean() || { megaFolderUrl: "" };
-        
+
         res.json({
             albums: formatData(albums),
             categories: formatData(categories),
@@ -144,60 +149,94 @@ app.get('/api/data', async (req, res) => {
             settings: settings
         });
     } catch (err) {
-        res.status(500).json({ success: false, message: "Gagal memuat data dari database." });
+        res.status(500).json({ success: false, message: "Gagal memuat data dari database: " + err.message });
     }
 });
 
 app.post('/api/albums', adminOnly, async (req, res) => {
     try {
-        const newAlbum = new Album({ _id: 'alb_' + Date.now(), name: req.body.name });
+        if (!req.body.name || !req.body.name.trim()) {
+            return res.status(400).json({ success: false, message: "Nama album tidak boleh kosong." });
+        }
+        const newAlbum = new Album({ _id: 'alb_' + Date.now(), name: req.body.name.trim() });
         await newAlbum.save();
         res.json({ id: newAlbum._id, name: newAlbum.name });
     } catch (err) {
-        res.status(500).json({ success: false, message: "Gagal menyimpan album." });
+        res.status(500).json({ success: false, message: "Gagal menyimpan album: " + err.message });
     }
 });
 
 app.put('/api/albums/:id', adminOnly, async (req, res) => {
-    await Album.findByIdAndUpdate(req.params.id, { name: req.body.name });
-    res.json({ success: true });
+    try {
+        await Album.findByIdAndUpdate(req.params.id, { name: req.body.name.trim() });
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ success: false, message: "Gagal mengupdate album: " + err.message });
+    }
 });
 
 app.post('/api/categories', adminOnly, async (req, res) => {
     try {
-        const nameLower = req.body.name.trim().toLowerCase();
-        const existing = await Category.findOne({ name: { $regex: new RegExp(`^${nameLower}$`, 'i') } });
-        if (existing) return res.json({ id: existing._id, name: existing.name });
+        const { albumId, name } = req.body;
+        if (!albumId || !name || !name.trim()) {
+            return res.status(400).json({ success: false, message: "Album ID dan Nama Kategori harus diisi." });
+        }
 
-        const newCat = new Category({ _id: 'cat_' + Date.now(), name: req.body.name.trim() });
+        const cleanAlbumId = String(albumId).trim();
+        const cleanName = String(name).trim();
+        const nameLower = cleanName.toLowerCase();
+
+        const existing = await Category.findOne({
+            albumId: cleanAlbumId,
+            name: { $regex: new RegExp(`^${nameLower}$`, 'i') }
+        });
+
+        if (existing) {
+            return res.json({ id: existing._id, albumId: existing.albumId, name: existing.name });
+        }
+
+        const newCat = new Category({
+            _id: 'cat_' + Date.now(),
+            albumId: cleanAlbumId,
+            name: cleanName
+        });
         await newCat.save();
-        res.json({ id: newCat._id, name: newCat.name });
+
+        res.json({ id: newCat._id, albumId: newCat.albumId, name: newCat.name });
     } catch (err) {
-        res.status(500).json({ success: false, message: "Gagal menyimpan kategori." });
+        res.status(500).json({ success: false, message: "Gagal menyimpan kategori: " + err.message });
     }
 });
 
 app.put('/api/categories/:id', adminOnly, async (req, res) => {
-    await Category.findByIdAndUpdate(req.params.id, { name: req.body.name.trim() });
-    res.json({ success: true });
+    try {
+        await Category.findByIdAndUpdate(req.params.id, { name: req.body.name.trim() });
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ success: false, message: "Gagal mengupdate kategori: " + err.message });
+    }
 });
 
 app.put('/api/photos/:id', adminOnly, async (req, res) => {
-    let updateData = {};
-    if (req.body.caption !== undefined) updateData.caption = req.body.caption;
-    if (req.body.categoryId) updateData.categoryId = req.body.categoryId;
-    await Photo.findByIdAndUpdate(req.params.id, updateData);
-    res.json({ success: true });
+    try {
+        let updateData = {};
+        if (req.body.caption !== undefined) updateData.caption = req.body.caption;
+        if (req.body.categoryId) updateData.categoryId = req.body.categoryId;
+        await Photo.findByIdAndUpdate(req.params.id, updateData);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ success: false, message: "Gagal mengupdate foto: " + err.message });
+    }
 });
 
 app.post('/api/photos', adminOnly, upload.array('photos', 50), async (req, res) => {
     try {
         const { albumId, categoryId, caption } = req.body;
-        if (!req.files || req.files.length === 0) return res.status(400).send('Kosong');
+        if (!req.files || req.files.length === 0) return res.status(400).json({ success: false, message: 'Pilih minimal satu foto.' });
 
         const targetAlbum = await Album.findById(albumId);
         const targetCategory = await Category.findById(categoryId);
-        if (!targetAlbum || !targetCategory) return res.status(404).send('Data tidak valid');
+        if (!targetAlbum || !targetCategory) return res.status(404).json({ success: false, message: 'Album atau Kategori tujuan tidak valid.' });
 
         const settings = await Setting.findById('global_settings');
         let baseMegaFolder = megaStorage.root;
@@ -241,37 +280,50 @@ app.post('/api/photos', adminOnly, upload.array('photos', 50), async (req, res) 
 
         res.json({ success: true, photos: uploadedPhotos });
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        res.status(500).json({ success: false, message: "Gagal upload ke MEGA: " + error.message });
     }
 });
 
 app.delete('/api/photos/:id', adminOnly, async (req, res) => {
-    const photo = await Photo.findById(req.params.id);
-    if (photo && photo.megaFileName) {
-        try {
-            const alb = await Album.findById(photo.albumId);
-            const appF = await getFolder(megaStorage.root, 'MoodboardApps');
-            const albF = await getFolder(appF, alb ? alb.name : '');
-            if (albF && albF.children) {
-                const targetFile = albF.children.find(f => f.name === photo.megaFileName);
-                if (targetFile) await targetFile.delete();
-            }
-        } catch (e) { }
+    try {
+        const photo = await Photo.findById(req.params.id);
+        if (photo && photo.megaFileName) {
+            try {
+                const alb = await Album.findById(photo.albumId);
+                const appF = await getFolder(megaStorage.root, 'MoodboardApps');
+                const albF = await getFolder(appF, alb ? alb.name : '');
+                if (albF && albF.children) {
+                    const targetFile = albF.children.find(f => f.name === photo.megaFileName);
+                    if (targetFile) await targetFile.delete();
+                }
+            } catch (e) { }
+        }
+        await Photo.findByIdAndDelete(req.params.id);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ success: false, message: "Gagal menghapus foto: " + err.message });
     }
-    await Photo.findByIdAndDelete(req.params.id);
-    res.json({ success: true });
 });
 
 app.delete('/api/categories/:id', adminOnly, async (req, res) => {
-    await Category.findByIdAndDelete(req.params.id);
-    await Photo.deleteMany({ categoryId: req.params.id });
-    res.json({ success: true });
+    try {
+        await Category.findByIdAndDelete(req.params.id);
+        await Photo.deleteMany({ categoryId: req.params.id });
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ success: false, message: "Gagal menghapus kategori: " + err.message });
+    }
 });
 
 app.delete('/api/albums/:id', adminOnly, async (req, res) => {
-    await Album.findByIdAndDelete(req.params.id);
-    await Photo.deleteMany({ albumId: req.params.id });
-    res.json({ success: true });
+    try {
+        await Album.findByIdAndDelete(req.params.id);
+        await Photo.deleteMany({ albumId: req.params.id });
+        await Category.deleteMany({ albumId: req.params.id });
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ success: false, message: "Gagal menghapus album: " + err.message });
+    }
 });
 
 app.get('/api/proxy-image', async (req, res) => {
@@ -281,6 +333,7 @@ app.get('/api/proxy-image', async (req, res) => {
         const file = File.fromURL(url);
         await file.loadAttributes();
         res.setHeader('Content-Type', 'image/jpeg');
+        // Cache gambar tetap 30 hari di HP untuk mempercepat buka foto
         res.setHeader('Cache-Control', 'public, max-age=2592000');
         file.download().pipe(res);
     } catch (e) { res.status(500).send('Gagal'); }
