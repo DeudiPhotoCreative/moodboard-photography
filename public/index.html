@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Moodboard Pose Pro</title>
+    <title>Moodboard Pose Pro - Live</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
@@ -57,6 +57,7 @@
 
 <body class="bg-gray-900 text-gray-100 min-h-screen font-sans selection:bg-blue-500 selection:text-white">
 
+    <!-- HALAMAN LOGIN -->
     <div id="view-login" class="flex flex-col items-center justify-center min-h-screen p-6 relative overflow-hidden">
         <div
             class="absolute top-[-10%] left-[-10%] w-96 h-96 bg-blue-600 rounded-full mix-blend-multiply filter blur-3xl opacity-20">
@@ -98,19 +99,29 @@
         </div>
     </div>
 
+    <!-- MAIN APP WRAPPER -->
     <div id="app" class="hidden">
         <header
             class="sticky top-0 bg-gray-900/90 backdrop-blur-md border-b border-gray-800 p-4 flex justify-between items-center z-40">
             <div class="flex items-center gap-3 cursor-pointer" onclick="showAlbumsView()">
                 <div
                     class="w-8 h-8 rounded-full bg-gradient-to-tr from-blue-600 to-emerald-500 flex items-center justify-center">
-                    <i class="fas fa-layer-group text-white text-xs"></i></div>
+                    <i class="fas fa-layer-group text-white text-xs"></i>
+                </div>
                 <h1 class="font-bold text-lg text-white tracking-wide">Moodboard</h1>
             </div>
-            <button onclick="logout()" class="text-sm text-gray-400 hover:text-white transition-colors"><i
-                    class="fas fa-sign-out-alt"></i> Keluar</button>
+            
+            <!-- [UPDATE]: Menambahkan lencana Live Sync Real-Time -->
+            <div class="flex items-center gap-3">
+                <div id="live-indicator" class="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-medium" title="Sistem otomatis memperbarui foto secara real-time">
+                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span> Live
+                </div>
+                <button onclick="logout()" class="text-sm text-gray-400 hover:text-white transition-colors"><i
+                        class="fas fa-sign-out-alt"></i> Keluar</button>
+            </div>
         </header>
 
+        <!-- VIEW ALBUMS -->
         <div id="view-albums" class="p-4 max-w-2xl mx-auto pb-24">
             <div class="flex justify-between items-center mb-6 mt-4">
                 <h3 class="text-2xl font-bold text-white">Koleksi Album</h3>
@@ -121,6 +132,7 @@
             <div id="albums-list" class="grid grid-cols-1 sm:grid-cols-2 gap-4"></div>
         </div>
 
+        <!-- VIEW DETAIL ALBUM -->
         <div id="view-album-detail" class="hidden max-w-4xl mx-auto pb-24">
             <div class="p-4 flex items-center gap-3 mb-2">
                 <button onclick="showAlbumsView()"
@@ -165,6 +177,7 @@
         </div>
     </div>
 
+    <!-- ================= MODALS ================= -->
     <div id="modal-album"
         class="modal-overlay fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
         <div class="modal-content bg-gray-800 border border-gray-700 rounded-3xl p-6 w-full max-w-sm shadow-2xl">
@@ -256,6 +269,7 @@
         </div>
     </div>
 
+    <!-- Lightbox -->
     <div id="lightbox"
         class="fixed inset-0 bg-black/95 z-[100] flex items-center justify-center opacity-0 invisible transition-all duration-300"
         onclick="closeLightbox()">
@@ -270,12 +284,14 @@
         </div>
     </div>
 
+    <!-- ================= JAVASCRIPT LOGIC ================= -->
     <script>
         let currentRole = 'user';
         let appData = { albums: [], categories: [], photos: [] };
         let activeAlbumId = null;
         let activeCategoryId = 'all';
         let editTarget = { type: '', id: '' };
+        let isLiveSyncing = false;
 
         function setRole(role) {
             currentRole = role;
@@ -352,7 +368,7 @@
                     if (currentRole === 'admin') {
                         document.querySelectorAll('#admin-add-album-btn, #admin-add-cat-btn, #admin-add-photo-btn, #admin-del-album-btn, #admin-edit-album-btn').forEach(el => el.classList.remove('hidden'));
                     }
-                    loadData();
+                    await loadData();
                 }
             } catch (err) { }
             btn.innerHTML = '<span>Masuk Aplikasi</span><i class="fas fa-arrow-right text-sm"></i>'; btn.disabled = false;
@@ -401,7 +417,6 @@
             const tabContainer = document.getElementById('categories-tabs');
 
             if (cats.length > 0) {
-                // Pastikan kategori aktif valid, jika tidak kembalikan ke tab 'Semua'
                 const isCatInAlbum = cats.some(c => c.id === activeCategoryId);
                 if (!isCatInAlbum && activeCategoryId !== 'all') {
                     activeCategoryId = 'all';
@@ -506,7 +521,6 @@
 
             if (data && data.id) {
                 closeModal('modal-category');
-                // Langsung lompat ke kategori yang baru saja dibuat agar user sadar datanya masuk
                 activeCategoryId = data.id;
                 await loadData();
             }
@@ -622,6 +636,58 @@
                 if (data && data.success) { showAlbumsView(); loadData(); }
             }
         }
+
+        // ================= FITUR LIVE AUTO-SYNC (REAL-TIME) =================
+        async function runLiveSync() {
+            // 1. JANGAN SYNC jika user sedang di layar Login
+            if (document.getElementById('app').classList.contains('hidden')) return;
+            
+            // 2. JANGAN SYNC jika ada Pop-up Modal (Upload/Edit/Buat Album) atau Lightbox Foto yang sedang terbuka
+            // Ini menjaga agar proses ketik/upload tim Anda tidak terganggu
+            if (document.querySelector('.modal-active') || document.getElementById('lightbox').classList.contains('lightbox-active')) {
+                return;
+            }
+
+            // 3. Hindari tumpang tindih request jaringan
+            if (isLiveSyncing) return;
+            isLiveSyncing = true;
+
+            try {
+                const res = await fetch('/api/data', { cache: 'no-store' });
+                if (!res.ok) return;
+                const latestData = await res.json();
+                
+                // 4. ALGORITMA DIFFING: Bandingkan data baru dengan data saat ini
+                // Mengubah ke JSON string untuk memeriksa apakah ada perubahan id, nama, caption, atau jumlah foto
+                const isDataChanged = JSON.stringify(latestData) !== JSON.stringify(appData);
+                
+                if (isDataChanged && latestData.albums) {
+                    console.log("⚡ [Live Sync] Perubahan data terdeteksi! Memperbarui layar secara halus...");
+                    appData = latestData;
+                    
+                    // 5. Perbarui layar tanpa mengubah posisi halaman user
+                    if (!activeAlbumId) {
+                        renderAlbums();
+                    } else {
+                        // Cek apakah album yang sedang dibuka masih ada (belum dihapus oleh admin lain)
+                        const currentAlbumExists = appData.albums.some(a => a.id === activeAlbumId);
+                        if (currentAlbumExists) {
+                            viewAlbum(activeAlbumId, activeCategoryId);
+                        } else {
+                            showAlbumsView();
+                            renderAlbums();
+                        }
+                    }
+                }
+            } catch (e) {
+                // Abaikan error jaringan sesaat di latar belakang agar tidak memunculkan alert berulang
+            } finally {
+                isLiveSyncing = false;
+            }
+        }
+
+        // Menjalankan pemeriksaan otomatis setiap 4 detik
+        setInterval(runLiveSync, 4000);
     </script>
 </body>
 
