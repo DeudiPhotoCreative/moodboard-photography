@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="id">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Moodboard Pose Pro</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .modal-overlay {
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .modal-content {
+            transform: scale(0.95) translateY(10px);
+            opacity: 0;
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .modal-active.modal-overlay {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .modal-active .modal-content {
+            transform: scale(1) translateY(0);
+            opacity: 1;
+        }
+
+        .lightbox-active {
+            opacity: 1 !important;
+            visibility: visible !important;
+        }
+
+        .lightbox-img {
+            transform: scale(0.9);
+            transition: transform 0.3s ease;
+        }
+
+        .lightbox-active .lightbox-img {
+            transform: scale(1);
+        }
+
+        .scrollbar-hide::-webkit-scrollbar {
+            display: none;
+        }
+
+        .scrollbar-hide {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+    </style>
+</head>
+
+<body class="bg-gray-900 text-gray-100 min-h-screen font-sans selection:bg-blue-500 selection:text-white">
+
+    <div id="view-login" class="flex flex-col items-center justify-center min-h-screen p-6 relative overflow-hidden">
+        <div
+            class="absolute top-[-10%] left-[-10%] w-96 h-96 bg-blue-600 rounded-full mix-blend-multiply filter blur-3xl opacity-20">
+        </div>
+        <div
+            class="absolute bottom-[-10%] right-[-10%] w-96 h-96 bg-emerald-600 rounded-full mix-blend-multiply filter blur-3xl opacity-20">
+        </div>
+
+        <div
+            class="bg-gray-800/80 backdrop-blur-xl p-8 rounded-3xl w-full max-w-sm shadow-2xl border border-gray-700/50 relative z-10">
+            <div class="text-center mb-8">
+                <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gray-700 mb-4"><i
+                        class="fas fa-camera-retro text-3xl text-blue-400"></i></div>
+                <h2 class="text-2xl font-bold text-white">Moodboard Pro</h2>
+            </div>
+            <div class="flex gap-2 mb-6 bg-gray-900/50 p-1 rounded-xl">
+                <button id="btn-role-user" onclick="setRole('user')"
+                    class="flex-1 py-2 bg-blue-600 text-white rounded-lg font-medium shadow-lg transition-all">User</button>
+                <button id="btn-role-admin" onclick="setRole('admin')"
+                    class="flex-1 py-2 text-gray-400 hover:text-white rounded-lg font-medium transition-all">Admin</button>
+            </div>
+            <div id="admin-fields" class="hidden space-y-4 mb-6">
+                <div>
+                    <label class="text-xs text-gray-400 ml-1">Email MEGA</label>
+                    <input type="email" id="login-email"
+                        class="w-full mt-1 p-3 bg-gray-900/50 border border-gray-700 rounded-xl text-white focus:outline-none focus:border-blue-500"
+                        autocomplete="off">
+                </div>
+                <div>
+                    <label class="text-xs text-gray-400 ml-1">Password</label>
+                    <input type="password" id="login-password"
+                        class="w-full mt-1 p-3 bg-gray-900/50 border border-gray-700 rounded-xl text-white focus:outline-none focus:border-blue-500">
+                </div>
+            </div>
+            <button id="btn-login" onclick="handleLogin()"
+                class="w-full py-3.5 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 rounded-xl font-bold shadow-lg shadow-blue-500/30 transition-all flex justify-center items-center gap-2">
+                <span>Masuk Aplikasi</span><i class="fas fa-arrow-right text-sm"></i>
+            </button>
+        </div>
+    </div>
+
+    <div id="app" class="hidden">
+        <header
+            class="sticky top-0 bg-gray-900/90 backdrop-blur-md border-b border-gray-800 p-4 flex justify-between items-center z-40">
+            <div class="flex items-center gap-3 cursor-pointer" onclick="showAlbumsView()">
+                <div
+                    class="w-8 h-8 rounded-full bg-gradient-to-tr from-blue-600 to-emerald-500 flex items-center justify-center">
+                    <i class="fas fa-layer-group text-white text-xs"></i></div>
+                <h1 class="font-bold text-lg text-white tracking-wide">Moodboard</h1>
+            </div>
+            <div class="flex items-center gap-3">
+                <button id="admin-settings-btn" onclick="openSettingsModal()"
+                    class="hidden text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 px-3 py-1.5 rounded-lg border border-gray-700"><i
+                        class="fas fa-cog mr-1"></i> Folder MEGA</button>
+                <button onclick="logout()" class="text-sm text-gray-400 hover:text-white transition-colors"><i
+                        class="fas fa-sign-out-alt"></i> Keluar</button>
+            </div>
+        </header>
+
+        <div id="view-albums" class="p-4 max-w-2xl mx-auto pb-24">
+            <div class="flex justify-between items-center mb-6 mt-4">
+                <h3 class="text-2xl font-bold text-white">Koleksi Album</h3>
+                <button id="admin-add-album-btn" onclick="openModal('modal-album')"
+                    class="hidden bg-gray-800 hover:bg-gray-700 text-white px-4 py-2 rounded-xl text-sm font-medium border border-gray-700 transition-all"><i
+                        class="fas fa-folder-plus mr-1"></i> Album Baru</button>
+            </div>
+            <div id="albums-list" class="grid grid-cols-1 sm:grid-cols-2 gap-4"></div>
+        </div>
+
+        <div id="view-album-detail" class="hidden max-w-4xl mx-auto pb-24">
+            <div class="p-4 flex items-center gap-3 mb-2">
+                <button onclick="showAlbumsView()"
+                    class="w-10 h-10 rounded-full bg-gray-800 flex items-center justify-center text-gray-400 hover:text-white"><i
+                        class="fas fa-arrow-left"></i></button>
+                <h2 id="detail-album-title" class="text-2xl font-bold flex-1 truncate">Nama Album</h2>
+
+                <div class="flex gap-2">
+                    <button id="admin-edit-album-btn" onclick="openEditModal('album')"
+                        class="hidden text-yellow-500 bg-gray-800 hover:bg-gray-700 w-9 h-9 rounded-full"><i
+                            class="fas fa-pen"></i></button>
+                    <button id="admin-del-album-btn" onclick="deleteAlbum()"
+                        class="hidden text-red-500 bg-gray-800 hover:bg-gray-700 w-9 h-9 rounded-full"><i
+                            class="fas fa-trash-alt"></i></button>
+                </div>
+            </div>
+
+            <div
+                class="sticky top-[61px] bg-gray-900/95 backdrop-blur-md px-4 py-3 border-b border-gray-800 z-30 flex items-center justify-between shadow-lg shadow-gray-900">
+                <div id="categories-tabs" class="flex gap-2 overflow-x-auto scrollbar-hide pr-4 flex-1"></div>
+                <button id="admin-add-cat-btn" onclick="openModal('modal-category')"
+                    class="hidden bg-gray-800 hover:bg-gray-700 text-white w-9 h-9 flex-shrink-0 rounded-full flex items-center justify-center border border-gray-700 transition-all"
+                    title="Buat Kategori Global"><i class="fas fa-plus"></i></button>
+            </div>
+
+            <div class="p-4">
+                <div class="flex justify-between items-end mb-6 mt-2 border-b border-gray-800 pb-2">
+                    <h4 class="text-sm font-medium text-gray-400 uppercase tracking-wider" id="active-cat-name">Semua
+                        Foto</h4>
+                    <div class="flex gap-3 items-center">
+                        <button id="admin-edit-cat-btn" onclick="openEditModal('category')"
+                            class="hidden text-yellow-500 text-xs px-2 hover:text-yellow-400"><i
+                                class="fas fa-pen mr-1"></i> Edit Section</button>
+                        <button id="admin-del-cat-btn" onclick="deleteCategory()"
+                            class="hidden text-red-500 text-xs px-2 hover:text-red-400"><i
+                                class="fas fa-trash-alt mr-1"></i> Hapus Section</button>
+                        <button id="admin-add-photo-btn" onclick="openUploadModal()"
+                            class="hidden bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-xl text-sm font-medium shadow-lg transition-all"><i
+                                class="fas fa-cloud-upload-alt mr-1"></i> Upload</button>
+                    </div>
+                </div>
+                <div id="photos-grid" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 md:gap-4"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal-settings"
+        class="modal-overlay fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div class="modal-content bg-gray-800 border border-gray-700 rounded-3xl p-6 w-full max-w-sm shadow-2xl">
+            <h3 class="text-xl font-bold mb-2">Pengaturan Folder MEGA</h3>
+            <p class="text-xs text-gray-400 mb-4">Masukkan link URL Folder MEGA untuk menyimpan seluruh foto yang
+                diunggah.</p>
+            <input type="text" id="input-mega-url" placeholder="https://mega.nz/folder/..."
+                class="w-full p-3 bg-gray-900 border border-gray-700 rounded-xl text-white mb-6 focus:border-blue-500 focus:outline-none text-sm">
+            <div class="flex gap-3">
+                <button onclick="closeModal('modal-settings')"
+                    class="flex-1 py-3 bg-gray-700 hover:bg-gray-600 rounded-xl font-medium">Batal</button>
+                <button onclick="submitSettings()"
+                    class="flex-1 py-3 bg-blue-600 hover:bg-blue-500 rounded-xl font-medium text-white shadow-lg">Simpan</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal-album"
+        class="modal-overlay fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div class="modal-content bg-gray-800 border border-gray-700 rounded-3xl p-6 w-full max-w-sm shadow-2xl">
+            <h3 class="text-xl font-bold mb-4">Buat Album Baru</h3>
+            <input type="text" id="input-album-name" placeholder="Cth: Prewedding Bromo"
+                class="w-full p-3 bg-gray-900 border border-gray-700 rounded-xl text-white mb-6 focus:border-blue-500 focus:outline-none">
+            <div class="flex gap-3">
+                <button onclick="closeModal('modal-album')"
+                    class="flex-1 py-3 bg-gray-700 hover:bg-gray-600 rounded-xl font-medium">Batal</button>
+                <button onclick="submitAlbum()"
+                    class="flex-1 py-3 bg-blue-600 hover:bg-blue-500 rounded-xl font-medium text-white">Simpan</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal-category"
+        class="modal-overlay fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div class="modal-content bg-gray-800 border border-gray-700 rounded-3xl p-6 w-full max-w-sm shadow-2xl">
+            <h3 class="text-xl font-bold mb-1">Tambah Kategori Global</h3>
+            <p class="text-xs text-gray-400 mb-4">Kategori ini akan langsung tersedia di semua album.</p>
+            <input type="text" id="input-cat-name" placeholder="Cth: Close Up, Detail Ring"
+                class="w-full p-3 bg-gray-900 border border-gray-700 rounded-xl text-white mb-6 focus:border-blue-500 focus:outline-none">
+            <div class="flex gap-3">
+                <button onclick="closeModal('modal-category')"
+                    class="flex-1 py-3 bg-gray-700 hover:bg-gray-600 rounded-xl font-medium">Batal</button>
+                <button onclick="submitCategory()"
+                    class="flex-1 py-3 bg-blue-600 hover:bg-blue-500 rounded-xl font-medium text-white">Simpan</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal-edit"
+        class="modal-overlay fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div class="modal-content bg-gray-800 border border-gray-700 rounded-3xl p-6 w-full max-w-sm shadow-2xl">
+            <h3 class="text-xl font-bold mb-4" id="edit-modal-title">Edit Data</h3>
+
+            <div class="space-y-4 mb-6">
+                <div>
+                    <label id="label-edit-value" class="text-xs text-gray-400 ml-1 block mb-1">Nama</label>
+                    <input type="text" id="input-edit-value"
+                        class="w-full p-3 bg-gray-900 border border-gray-700 rounded-xl text-white focus:border-yellow-500 focus:outline-none text-sm">
+                </div>
+
+                <div id="container-edit-category" class="hidden">
+                    <label class="text-xs text-gray-400 ml-1 block mb-1">Pindahkan ke Kategori Section</label>
+                    <select id="select-edit-category"
+                        class="w-full p-3 bg-gray-900 border border-gray-700 rounded-xl text-white focus:border-yellow-500 focus:outline-none text-sm cursor-pointer"></select>
+                </div>
+            </div>
+
+            <div class="flex gap-3">
+                <button onclick="closeModal('modal-edit')"
+                    class="flex-1 py-3 bg-gray-700 hover:bg-gray-600 rounded-xl font-medium">Batal</button>
+                <button onclick="submitEdit()"
+                    class="flex-1 py-3 bg-yellow-600 hover:bg-yellow-500 rounded-xl font-bold text-white shadow-lg">Simpan</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal-upload"
+        class="modal-overlay fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div class="modal-content bg-gray-800 border border-gray-700 rounded-3xl p-6 w-full max-w-md shadow-2xl">
+            <h3 class="text-xl font-bold mb-4 flex items-center gap-2"><i
+                    class="fas fa-cloud-upload-alt text-emerald-400"></i> Upload Foto</h3>
+            <div class="space-y-4 mb-6">
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="text-xs text-gray-400 ml-1 block mb-1">Pilih Album</label>
+                        <select id="upload-album-select" onchange="updateUploadCategoryDropdown()"
+                            class="w-full p-3 bg-gray-900 border border-gray-700 rounded-xl text-white focus:outline-none text-sm appearance-none cursor-pointer"></select>
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-400 ml-1 block mb-1">Pilih Kategori Global</label>
+                        <select id="upload-cat-select"
+                            class="w-full p-3 bg-gray-900 border border-gray-700 rounded-xl text-white focus:outline-none text-sm appearance-none cursor-pointer"></select>
+                    </div>
+                </div>
+                <div>
+                    <label class="text-xs text-gray-400 ml-1 block mb-1">Pilih Foto (Bisa lebih dari 1)</label>
+                    <label
+                        class="flex flex-col items-center justify-center w-full h-32 border-2 border-gray-700 border-dashed rounded-xl cursor-pointer bg-gray-900/50 hover:bg-gray-900 transition-colors">
+                        <div class="flex flex-col items-center justify-center pt-5 pb-6">
+                            <i class="fas fa-images text-3xl text-gray-500 mb-2"></i>
+                            <p class="text-sm text-gray-400" id="file-count-text">Klik untuk pilih foto</p>
+                        </div>
+                        <input id="upload-files" type="file" class="hidden" accept="image/*" multiple
+                            onchange="updateFileCount(this)" />
+                    </label>
+                </div>
+                <div>
+                    <label class="text-xs text-gray-400 ml-1 block mb-1">Caption / Catatan Pose</label>
+                    <input type="text" id="upload-caption" placeholder="Opsional..."
+                        class="w-full p-3 bg-gray-900 border border-gray-700 rounded-xl text-white focus:outline-none text-sm">
+                </div>
+            </div>
+            <div class="flex gap-3">
+                <button onclick="closeModal('modal-upload')" id="btn-cancel-upload"
+                    class="flex-1 py-3 bg-gray-700 hover:bg-gray-600 rounded-xl font-medium">Batal</button>
+                <button onclick="submitUpload()" id="btn-submit-upload"
+                    class="flex-[2] py-3 bg-emerald-600 hover:bg-emerald-500 rounded-xl font-bold text-white shadow-lg transition-all flex justify-center items-center gap-2"><span>Mulai
+                        Upload</span></button>
+            </div>
+        </div>
+    </div>
+
+    <div id="lightbox"
+        class="fixed inset-0 bg-black/95 z-[100] flex items-center justify-center opacity-0 invisible transition-all duration-300"
+        onclick="closeLightbox()">
+        <button
+            class="absolute top-6 right-6 text-white bg-white/10 hover:bg-white/20 rounded-full w-12 h-12 flex items-center justify-center backdrop-blur-md transition-colors z-50">
+            <i class="fas fa-times text-xl"></i>
+        </button>
+        <img id="lightbox-image" src="" alt="Preview"
+            class="lightbox-img max-w-full max-h-full object-contain p-4 shadow-2xl">
+        <div id="lightbox-caption"
+            class="absolute bottom-8 left-0 right-0 text-center text-white text-lg font-medium drop-shadow-md px-4">
+        </div>
+    </div>
+
+    <script>
+        let currentRole = 'user';
+        let appData = { albums: [], categories: [], photos: [], settings: { megaFolderUrl: "" } };
+        let activeAlbumId = null;
+        let activeCategoryId = 'all';
+        let editTarget = { type: '', id: '' };
+
+        function setRole(role) {
+            currentRole = role;
+            const btnUser = document.getElementById('btn-role-user');
+            const btnAdmin = document.getElementById('btn-role-admin');
+            if (role === 'user') {
+                btnUser.className = 'flex-1 py-2 bg-blue-600 text-white rounded-lg font-medium shadow-lg transition-all';
+                btnAdmin.className = 'flex-1 py-2 text-gray-400 hover:text-white rounded-lg font-medium transition-all';
+                document.getElementById('admin-fields').classList.add('hidden');
+            } else {
+                btnAdmin.className = 'flex-1 py-2 bg-blue-600 text-white rounded-lg font-medium shadow-lg transition-all';
+                btnUser.className = 'flex-1 py-2 text-gray-400 hover:text-white rounded-lg font-medium transition-all';
+                document.getElementById('admin-fields').classList.remove('hidden');
+            }
+        }
+
+        function openModal(id) { document.getElementById(id).classList.add('modal-active'); }
+        function closeModal(id) {
+            document.getElementById(id).classList.remove('modal-active');
+            if (id === 'modal-album') document.getElementById('input-album-name').value = '';
+            if (id === 'modal-category') document.getElementById('input-cat-name').value = '';
+            if (id === 'modal-upload') {
+                document.getElementById('upload-files').value = '';
+                document.getElementById('file-count-text').innerText = 'Klik untuk pilih foto';
+                document.getElementById('upload-caption').value = '';
+            }
+        }
+
+        function openLightbox(url, caption) {
+            const lightbox = document.getElementById('lightbox');
+            document.getElementById('lightbox-image').src = url;
+            document.getElementById('lightbox-caption').innerText = caption || '';
+            lightbox.classList.add('lightbox-active');
+        }
+        function closeLightbox() { document.getElementById('lightbox').classList.remove('lightbox-active'); }
+
+        async function handleAPIError(res) {
+            if (res.status === 403) { alert("Sesi Admin telah habis atau tidak valid. Silakan login kembali."); return false; }
+            return true;
+        }
+
+        // AUTH & SETTINGS
+        async function handleLogin() {
+            const btn = document.getElementById('btn-login');
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Menghubungkan...'; btn.disabled = true;
+            try {
+                const res = await fetch('/api/login', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ role: currentRole, email: document.getElementById('login-email').value, password: document.getElementById('login-password').value })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    document.getElementById('view-login').classList.add('hidden');
+                    document.getElementById('app').classList.remove('hidden');
+                    if (currentRole === 'admin') {
+                        document.querySelectorAll('#admin-add-album-btn, #admin-add-cat-btn, #admin-add-photo-btn, #admin-del-album-btn, #admin-edit-album-btn, #admin-settings-btn').forEach(el => el.classList.remove('hidden'));
+                    }
+                    loadData();
+                } else { alert(data.message); }
+            } catch (err) { alert("Tidak dapat terhubung ke server."); }
+            btn.innerHTML = '<span>Masuk Aplikasi</span><i class="fas fa-arrow-right text-sm"></i>'; btn.disabled = false;
+        }
+
+        function logout() { fetch('/api/logout', { method: 'POST' }); window.location.reload(); }
+
+        function openSettingsModal() {
+            document.getElementById('input-mega-url').value = appData.settings ? appData.settings.megaFolderUrl : "";
+            openModal('modal-settings');
+        }
+        async function submitSettings() {
+            const url = document.getElementById('input-mega-url').value;
+            const res = await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ megaFolderUrl: url }) });
+            if (await handleAPIError(res)) { closeModal('modal-settings'); loadData(); alert("Link Folder MEGA berhasil disimpan!"); }
+        }
+
+        // DATA & RENDERING
+        async function loadData() {
+            const res = await fetch('/api/data');
+            appData = await res.json();
+            if (!activeAlbumId) { renderAlbums(); } else { viewAlbum(activeAlbumId, activeCategoryId); }
+        }
+
+        function renderAlbums() {
+            showAlbumsView();
+            const list = document.getElementById('albums-list');
+            if (appData.albums.length === 0) { list.innerHTML = '<div class="col-span-2 text-center py-10 text-gray-500">Belum ada album.</div>'; return; }
+
+            list.innerHTML = appData.albums.map(alb => {
+                const coverPhoto = appData.photos.find(p => p.albumId === alb.id);
+                const bgImage = coverPhoto ? `url('/api/proxy-image?url=${encodeURIComponent(coverPhoto.megaLink)}')` : 'none';
+                return `
+                <div onclick="viewAlbum('${alb.id}')" class="group relative h-40 rounded-3xl overflow-hidden cursor-pointer shadow-lg active:scale-95 transition-all">
+                    <div class="absolute inset-0 bg-gray-800 bg-cover bg-center transition-transform duration-500 group-hover:scale-110" style="background-image: ${bgImage};"></div>
+                    <div class="absolute inset-0 bg-gradient-to-t from-gray-900 via-gray-900/60 to-transparent"></div>
+                    <div class="absolute bottom-4 left-5 right-5 flex justify-between items-end">
+                        <span class="font-bold text-xl text-white drop-shadow-md">${alb.name}</span>
+                        <div class="w-8 h-8 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center text-white"><i class="fas fa-chevron-right text-xs"></i></div>
+                    </div>
+                </div>`
+            }).join('');
+        }
+
+        function viewAlbum(albumId, catId = 'all') {
+            activeAlbumId = albumId; activeCategoryId = catId;
+            const albumObj = appData.albums.find(a => a.id === albumId);
+            document.getElementById('detail-album-title').innerText = albumObj ? albumObj.name : 'Album';
+            document.getElementById('view-albums').classList.add('hidden');
+            document.getElementById('view-album-detail').classList.remove('hidden');
+
+            // MENGGUNAKAN SEMUA KATEGORI GLOBAL
+            const cats = appData.categories;
+            const tabContainer = document.getElementById('categories-tabs');
+            if (cats.length > 0) {
+                let tabsHTML = `<button onclick="switchCategory('all')" id="tab-all" class="px-5 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap transition-colors border border-transparent">Semua</button>`;
+                tabsHTML += cats.map(c => `<button onclick="switchCategory('${c.id}')" id="tab-${c.id}" class="px-5 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap transition-colors border border-transparent">${c.name}</button>`).join('');
+                tabContainer.innerHTML = tabsHTML;
+                switchCategory(activeCategoryId);
+            } else {
+                activeCategoryId = 'all';
+                tabContainer.innerHTML = '<span class="text-sm text-gray-500 py-2">Belum ada kategori global. Tambahkan section dulu.</span>';
+                document.getElementById('photos-grid').innerHTML = '';
+                document.getElementById('active-cat-name').innerText = '';
+                if (currentRole === 'admin') {
+                    document.getElementById('admin-edit-cat-btn').style.display = 'none';
+                    document.getElementById('admin-del-cat-btn').style.display = 'none';
+                }
+            }
+        }
+
+        function generatePhotoHTML(p) {
+            const imgUrl = `/api/proxy-image?url=${encodeURIComponent(p.megaLink)}`;
+            const adminBtns = currentRole === 'admin' ? `
+                <div class="absolute top-2 right-2 flex flex-col gap-1 z-20">
+                    <button onclick="event.stopPropagation(); openEditModal('photo', '${p.id}')" class="bg-yellow-500/90 hover:bg-yellow-400 w-8 h-8 rounded-full flex items-center justify-center text-white shadow-lg transition-colors" title="Edit & Pindah Kategori">
+                        <i class="fas fa-pen text-xs"></i>
+                    </button>
+                    <button onclick="event.stopPropagation(); deletePhoto('${p.id}')" class="bg-red-600/90 hover:bg-red-500 w-8 h-8 rounded-full flex items-center justify-center text-white shadow-lg transition-colors" title="Hapus Foto">
+                        <i class="fas fa-trash-alt text-xs"></i>
+                    </button>
+                </div>
+            ` : '';
+
+            return `
+            <div onclick="openLightbox('${imgUrl}', '${p.caption}')" class="group bg-gray-800 rounded-2xl overflow-hidden border border-gray-700 relative cursor-zoom-in active:scale-95 transition-transform shadow-lg">
+                <img src="${imgUrl}" alt="pose" loading="lazy" class="w-full aspect-[3/4] object-cover bg-gray-900 transition-transform duration-500 group-hover:scale-105">
+                ${adminBtns}
+                ${p.caption ? `<div class="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/90 to-transparent z-10"><p class="text-xs font-medium text-gray-200 line-clamp-2">${p.caption}</p></div>` : ''}
+            </div>`;
+        }
+
+        function switchCategory(catId) {
+            activeCategoryId = catId;
+            const grid = document.getElementById('photos-grid');
+
+            document.querySelectorAll('[id^="tab-"]').forEach(btn => {
+                btn.className = 'px-5 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-colors bg-gray-800 text-gray-400 border border-gray-700 hover:text-white';
+            });
+            const activeTab = document.getElementById(`tab-${catId}`);
+            if (activeTab) activeTab.className = 'px-5 py-1.5 rounded-full text-sm font-bold whitespace-nowrap transition-colors bg-white text-gray-900 shadow-md';
+
+            if (currentRole === 'admin') {
+                const isAll = (catId === 'all');
+                document.getElementById('admin-edit-cat-btn').style.display = isAll ? 'none' : 'block';
+                document.getElementById('admin-del-cat-btn').style.display = isAll ? 'none' : 'block';
+            }
+
+            if (catId === 'all') {
+                document.getElementById('active-cat-name').innerText = 'Semua Kategori Global';
+                grid.className = 'block';
+                let htmlContent = '';
+                const allCats = appData.categories;
+                allCats.forEach(cat => {
+                    // Hanya tampilkan foto yang milik ALBUM saat ini DAN Kategori saat ini
+                    const photosInCat = appData.photos.filter(p => p.albumId === activeAlbumId && p.categoryId === cat.id);
+                    if (photosInCat.length > 0) {
+                        htmlContent += `<h5 class="text-white font-bold text-lg mt-6 mb-3 border-b border-gray-800 pb-1">${cat.name}</h5><div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 md:gap-4 mb-6">${photosInCat.map(generatePhotoHTML).join('')}</div>`;
+                    }
+                });
+                grid.innerHTML = htmlContent || '<div class="text-center py-10 text-gray-500 text-sm">Belum ada foto di album ini.</div>';
+            } else {
+                const catObj = appData.categories.find(c => c.id === catId);
+                document.getElementById('active-cat-name').innerText = catObj ? catObj.name : '';
+                grid.className = 'grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 md:gap-4';
+                const targetPhotos = appData.photos.filter(p => p.albumId === activeAlbumId && p.categoryId === catId);
+                grid.innerHTML = targetPhotos.length > 0 ? targetPhotos.map(generatePhotoHTML).join('') : '<div class="col-span-2 md:col-span-4 text-center py-10 text-gray-500 text-sm">Tidak ada foto di kategori ini untuk album saat ini.</div>';
+            }
+        }
+
+        function showAlbumsView() {
+            activeAlbumId = null;
+            document.getElementById('view-albums').classList.remove('hidden');
+            document.getElementById('view-album-detail').classList.add('hidden');
+        }
+
+        // --- SUBMIT ACTIONS (ADD) ---
+        async function submitAlbum() {
+            const name = document.getElementById('input-album-name').value;
+            if (!name) return alert('Nama tidak boleh kosong');
+            const res = await fetch('/api/albums', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
+            if (await handleAPIError(res)) { closeModal('modal-album'); loadData(); }
+        }
+
+        async function submitCategory() {
+            const name = document.getElementById('input-cat-name').value;
+            if (!name) return alert('Nama tidak boleh kosong');
+            const res = await fetch('/api/categories', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
+            if (await handleAPIError(res)) { closeModal('modal-category'); loadData(); }
+        }
+
+        // --- EDIT ACTIONS (UPDATE & PINDAH KATEGORI FOTO) ---
+        function openEditModal(type, photoId = null) {
+            editTarget = { type: type, id: photoId };
+            const input = document.getElementById('input-edit-value');
+            const label = document.getElementById('label-edit-value');
+            const catContainer = document.getElementById('container-edit-category');
+            const catSelect = document.getElementById('select-edit-category');
+
+            if (type === 'album') {
+                document.getElementById('edit-modal-title').innerText = 'Edit Nama Album';
+                label.innerText = 'Nama Album';
+                input.value = appData.albums.find(a => a.id === activeAlbumId).name;
+                catContainer.classList.add('hidden');
+                editTarget.id = activeAlbumId;
+            } else if (type === 'category') {
+                document.getElementById('edit-modal-title').innerText = 'Edit Nama Section Global';
+                label.innerText = 'Nama Section';
+                input.value = appData.categories.find(c => c.id === activeCategoryId).name;
+                catContainer.classList.add('hidden');
+                editTarget.id = activeCategoryId;
+            } else if (type === 'photo') {
+                document.getElementById('edit-modal-title').innerText = 'Edit Foto & Pindah Kategori';
+                label.innerText = 'Caption / Info Pose';
+                const pObj = appData.photos.find(p => p.id === photoId);
+                input.value = pObj ? (pObj.caption || '') : '';
+
+                // Isi pilihan dropdown Pindah Kategori
+                catSelect.innerHTML = appData.categories.map(c => `<option value="${c.id}" ${pObj && pObj.categoryId === c.id ? 'selected' : ''}>${c.name}</option>`).join('');
+                catContainer.classList.remove('hidden');
+            }
+            openModal('modal-edit');
+        }
+
+        async function submitEdit() {
+            const val = document.getElementById('input-edit-value').value;
+            if (!val && editTarget.type !== 'photo') return alert('Nama tidak boleh kosong');
+
+            let url = '', payload = {};
+            if (editTarget.type === 'album') { url = `/api/albums/${editTarget.id}`; payload = { name: val }; }
+            if (editTarget.type === 'category') { url = `/api/categories/${editTarget.id}`; payload = { name: val }; }
+            if (editTarget.type === 'photo') {
+                const newCatId = document.getElementById('select-edit-category').value;
+                url = `/api/photos/${editTarget.id}`;
+                payload = { caption: val, categoryId: newCatId };
+            }
+
+            const res = await fetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+            if (await handleAPIError(res)) { closeModal('modal-edit'); loadData(); }
+        }
+
+        // --- UPLOAD LOGIC ---
+        function openUploadModal() {
+            const albSelect = document.getElementById('upload-album-select');
+            albSelect.innerHTML = appData.albums.map(a => `<option value="${a.id}">${a.name}</option>`).join('');
+            albSelect.value = activeAlbumId;
+            updateUploadCategoryDropdown(); openModal('modal-upload');
+        }
+
+        function updateUploadCategoryDropdown() {
+            const catSelect = document.getElementById('upload-cat-select');
+            const cats = appData.categories; // Menggunakan Kategori Global
+            if (cats.length > 0) {
+                catSelect.innerHTML = cats.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+                catSelect.disabled = false;
+                if (activeCategoryId !== 'all') { catSelect.value = activeCategoryId; }
+            } else {
+                catSelect.innerHTML = '<option value="">-- Buat Kategori Dulu --</option>'; catSelect.disabled = true;
+            }
+        }
+
+        function updateFileCount(input) {
+            const text = document.getElementById('file-count-text');
+            text.innerHTML = input.files.length > 0 ? `<span class="text-emerald-400 font-bold">${input.files.length} Foto Terpilih</span>` : 'Klik untuk pilih foto';
+        }
+
+        async function submitUpload() {
+            const files = document.getElementById('upload-files').files;
+            const albumId = document.getElementById('upload-album-select').value;
+            const categoryId = document.getElementById('upload-cat-select').value;
+            const caption = document.getElementById('upload-caption').value;
+
+            if (files.length === 0) return alert('Pilih foto terlebih dahulu!');
+            if (!categoryId) return alert('Kategori tujuan tidak valid!');
+
+            const btn = document.getElementById('btn-submit-upload');
+            const btnCancel = document.getElementById('btn-cancel-upload');
+            const originalText = btn.innerHTML;
+            btn.innerHTML = `<i class="fas fa-spinner fa-spin"></i> Mengunggah...`; btn.disabled = true; btnCancel.disabled = true;
+
+            const formData = new FormData();
+            formData.append('albumId', albumId); formData.append('categoryId', categoryId); formData.append('caption', caption);
+            for (let i = 0; i < files.length; i++) { formData.append('photos', files[i]); }
+
+            try {
+                const res = await fetch('/api/photos', { method: 'POST', body: formData });
+                if (await handleAPIError(res)) {
+                    closeModal('modal-upload');
+                    activeAlbumId = albumId; activeCategoryId = categoryId;
+                    await loadData();
+                    setTimeout(() => alert(`${files.length} foto berhasil diunggah dengan format penamaan baru!`), 300);
+                }
+            } catch (e) { alert("Terjadi kesalahan jaringan."); }
+
+            btn.innerHTML = originalText; btn.disabled = false; btnCancel.disabled = false;
+        }
+
+        // --- DELETE ACTIONS (ADMIN ONLY, RESILIENT TO MEGA ERRORS) ---
+        async function deletePhoto(id) {
+            if (confirm('Apakah Anda yakin ingin menghapus foto ini?')) {
+                const res = await fetch(`/api/photos/${id}`, { method: 'DELETE' });
+                if (await handleAPIError(res)) loadData();
+            }
+        }
+
+        async function deleteCategory() {
+            if (confirm('PERINGATAN GLOBAL: Kategori ini bersifat global. Menghapusnya akan menghapus section ini beserta SELURUH foto di dalamnya dari SEMUA ALBUM. Lanjutkan?')) {
+                const res = await fetch(`/api/categories/${activeCategoryId}`, { method: 'DELETE' });
+                if (await handleAPIError(res)) { activeCategoryId = 'all'; loadData(); }
+            }
+        }
+
+        async function deleteAlbum() {
+            if (confirm('PERINGATAN: Yakin menghapus ALBUM ini beserta SELURUH fotonya?')) {
+                const res = await fetch(`/api/albums/${activeAlbumId}`, { method: 'DELETE' });
+                if (await handleAPIError(res)) { showAlbumsView(); loadData(); }
+            }
+        }
+    </script>
+</body>
+
+</html>

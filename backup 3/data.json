@@ -1,0 +1,47 @@
+{
+  "albums": [
+    {
+      "id": "alb_1783940377367",
+      "name": "WISUDA GIRLS PERSONAL"
+    },
+    {
+      "id": "alb_1783941233563",
+      "name": "PREWEDDING"
+    }
+  ],
+  "categories": [
+    {
+      "id": "cat_1783940392397",
+      "albumId": "alb_1783940377367",
+      "name": "DETAIL"
+    },
+    {
+      "id": "cat_1783940402436",
+      "albumId": "alb_1783940377367",
+      "name": "CLOSE UP"
+    },
+    {
+      "id": "cat_1783940407880",
+      "albumId": "alb_1783940377367",
+      "name": "MEDIUM"
+    },
+    {
+      "id": "cat_1783941094408",
+      "albumId": "alb_1783940377367",
+      "name": "WIDE"
+    }
+  ],
+  "photos": [
+    {
+      "id": "img_178394167901488",
+      "albumId": "alb_1783941233563",
+      "categoryId": "cat_1783940402436",
+      "caption": "Tangan",
+      "megaLink": "https://mega.nz/file/zZ5lXDSJ#6tq-a8TL9kA9mN4nxBSAmDlRRk3IQ18jcuQRJq0xUVE",
+      "megaFileName": "PREWEDDING - CLOSE UP - 1.jpg"
+    }
+  ],
+  "settings": {
+    "megaFolderUrl": "https://mega.nz/folder/vRhxyDhD#2sQ8Y_xRYI1ZNYWKW7h4JQ"
+  }
+}

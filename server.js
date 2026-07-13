@@ -1,9 +1,10 @@
+require('dotenv').config();
 const express = require('express');
 const { Storage, File } = require('megajs');
 const multer = require('multer');
-const fs = require('fs');
 const path = require('path');
 const cors = require('cors');
+const mongoose = require('mongoose'); // Import Mongoose
 
 const app = express();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -12,40 +13,34 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static('public'));
 
-const DB_FILE = path.join(__dirname, 'data.json');
+// ================= KONEKSI MONGODB =================
+mongoose.connect(process.env.MONGODB_URI)
+    .then(() => console.log('✅ Berhasil terhubung ke MongoDB Atlas!'))
+    .catch(err => console.error('❌ Gagal terhubung ke MongoDB:', err));
+
+// ================= DEFINISI STRUKTUR DATABASE (SCHEMA) =================
+const Album = mongoose.model('Album', new mongoose.Schema({
+    _id: String, name: String
+}, { versionKey: false }));
+
+const Category = mongoose.model('Category', new mongoose.Schema({
+    _id: String, name: String
+}, { versionKey: false }));
+
+const Photo = mongoose.model('Photo', new mongoose.Schema({
+    _id: String, albumId: String, categoryId: String, caption: String,
+    megaLink: String, megaFileName: String
+}, { versionKey: false }));
+
+const Setting = mongoose.model('Setting', new mongoose.Schema({
+    _id: String, megaFolderUrl: String
+}, { versionKey: false }));
+
 let megaStorage = null;
 let isAdminAuthenticated = false;
 
-// Database Helper (Dilengkapi Auto-Migrasi ke Kategori Global & Pengaturan Link MEGA)
-const readDB = () => {
-    if (!fs.existsSync(DB_FILE)) {
-        fs.writeFileSync(DB_FILE, JSON.stringify({ albums: [], categories: [], photos: [], settings: { megaFolderUrl: "" } }, null, 2));
-    }
-    const data = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
-    if (!data.settings) data.settings = { megaFolderUrl: "" };
-
-    // AUTO-MIGRASI: Menggabungkan kategori duplikat lama menjadi 1 Kategori Global yang bersih
-    const uniqueCats = [];
-    const catMap = {}; // memetakan id lama ke id global baru
-    data.categories.forEach(c => {
-        const nameLower = c.name.trim().toLowerCase();
-        const existing = uniqueCats.find(u => u.name.trim().toLowerCase() === nameLower);
-        if (existing) {
-            catMap[c.id] = existing.id;
-        } else {
-            uniqueCats.push({ id: c.id, name: c.name.trim() });
-            catMap[c.id] = c.id;
-        }
-    });
-    // Perbarui referensi foto ke ID kategori global yang sudah dirapikan
-    data.photos.forEach(p => {
-        if (catMap[p.categoryId]) p.categoryId = catMap[p.categoryId];
-    });
-    data.categories = uniqueCats;
-
-    return data;
-};
-const writeDB = (data) => fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
+// Helper: Format data dari MongoDB agar atribut '_id' berubah menjadi 'id' untuk menyesuaikan frontend
+const formatData = (arr) => arr.map(doc => ({ ...doc, id: doc._id }));
 
 // Helper: Cari atau Buat Folder secara aman di MEGA
 async function getFolder(parent, name) {
@@ -106,49 +101,66 @@ const adminOnly = (req, res, next) => {
     next();
 };
 
-app.post('/api/settings', adminOnly, (req, res) => {
-    const db = readDB();
-    db.settings.megaFolderUrl = req.body.megaFolderUrl || "";
-    writeDB(db);
-    res.json({ success: true, settings: db.settings });
+app.post('/api/settings', adminOnly, async (req, res) => {
+    await Setting.findByIdAndUpdate(
+        'global_settings',
+        { megaFolderUrl: req.body.megaFolderUrl || "" },
+        { upsert: true }
+    );
+    const settings = await Setting.findById('global_settings').lean();
+    res.json({ success: true, settings: settings });
 });
 
-// ================= API CRUD (READ, CREATE, UPDATE) =================
-app.get('/api/data', (req, res) => res.json(readDB()));
+// ================= API CRUD MONGODB (READ, CREATE, UPDATE) =================
+app.get('/api/data', async (req, res) => {
+    const albums = await Album.find().lean();
+    const categories = await Category.find().lean();
+    const photos = await Photo.find().lean();
+    const settings = await Setting.findById('global_settings').lean() || { megaFolderUrl: "" };
 
-app.post('/api/albums', adminOnly, (req, res) => {
-    const db = readDB();
-    const newAlbum = { id: 'alb_' + Date.now(), name: req.body.name };
-    db.albums.push(newAlbum); writeDB(db); res.json(newAlbum);
+    res.json({
+        albums: formatData(albums),
+        categories: formatData(categories),
+        photos: formatData(photos),
+        settings: settings
+    });
 });
-app.put('/api/albums/:id', adminOnly, (req, res) => {
-    const db = readDB(); const item = db.albums.find(a => a.id === req.params.id);
-    if (item) { item.name = req.body.name; writeDB(db); } res.json({ success: true });
+
+app.post('/api/albums', adminOnly, async (req, res) => {
+    const newAlbum = new Album({ _id: 'alb_' + Date.now(), name: req.body.name });
+    await newAlbum.save();
+    res.json({ id: newAlbum._id, name: newAlbum.name });
+});
+
+app.put('/api/albums/:id', adminOnly, async (req, res) => {
+    await Album.findByIdAndUpdate(req.params.id, { name: req.body.name });
+    res.json({ success: true });
 });
 
 // KATEGORI GLOBAL: Dibuat tanpa mengikat pada album tertentu
-app.post('/api/categories', adminOnly, (req, res) => {
-    const db = readDB();
+app.post('/api/categories', adminOnly, async (req, res) => {
     const nameLower = req.body.name.trim().toLowerCase();
-    const existing = db.categories.find(c => c.name.toLowerCase() === nameLower);
-    if (existing) return res.json(existing); // Jika sudah ada, langsung kembalikan kategori global tersebut
+    // Cek duplikasi kategori global menggunakan regex (case-insensitive)
+    const existing = await Category.findOne({ name: { $regex: new RegExp(`^${nameLower}$`, 'i') } });
+    if (existing) return res.json({ id: existing._id, name: existing.name });
 
-    const newCat = { id: 'cat_' + Date.now(), name: req.body.name.trim() };
-    db.categories.push(newCat); writeDB(db); res.json(newCat);
-});
-app.put('/api/categories/:id', adminOnly, (req, res) => {
-    const db = readDB(); const item = db.categories.find(c => c.id === req.params.id);
-    if (item) { item.name = req.body.name.trim(); writeDB(db); } res.json({ success: true });
+    const newCat = new Category({ _id: 'cat_' + Date.now(), name: req.body.name.trim() });
+    await newCat.save();
+    res.json({ id: newCat._id, name: newCat.name });
 });
 
-// UPDATE FOTO: Bisa mengubah Caption DAN Memindahkan Kategori!
-app.put('/api/photos/:id', adminOnly, (req, res) => {
-    const db = readDB(); const item = db.photos.find(p => p.id === req.params.id);
-    if (item) {
-        if (req.body.caption !== undefined) item.caption = req.body.caption;
-        if (req.body.categoryId) item.categoryId = req.body.categoryId; // Memindahkan kategori
-        writeDB(db);
-    } res.json({ success: true });
+app.put('/api/categories/:id', adminOnly, async (req, res) => {
+    await Category.findByIdAndUpdate(req.params.id, { name: req.body.name.trim() });
+    res.json({ success: true });
+});
+
+// UPDATE FOTO: Bisa mengubah Caption DAN Memindahkan Kategori
+app.put('/api/photos/:id', adminOnly, async (req, res) => {
+    let updateData = {};
+    if (req.body.caption !== undefined) updateData.caption = req.body.caption;
+    if (req.body.categoryId) updateData.categoryId = req.body.categoryId;
+    await Photo.findByIdAndUpdate(req.params.id, updateData);
+    res.json({ success: true });
 });
 
 // ================= UPLOAD FOTO (RENAME: ALBUM - KATEGORI - NOMOR) =================
@@ -157,16 +169,17 @@ app.post('/api/photos', adminOnly, upload.array('photos', 50), async (req, res) 
         const { albumId, categoryId, caption } = req.body;
         if (!req.files || req.files.length === 0) return res.status(400).send('Kosong');
 
-        const db = readDB();
-        const targetAlbum = db.albums.find(a => a.id === albumId);
-        const targetCategory = db.categories.find(c => c.id === categoryId);
+        const targetAlbum = await Album.findById(albumId);
+        const targetCategory = await Category.findById(categoryId);
         if (!targetAlbum || !targetCategory) return res.status(404).send('Data tidak valid');
 
+        const settings = await Setting.findById('global_settings');
         let baseMegaFolder = megaStorage.root;
-        if (db.settings.megaFolderUrl) {
+
+        if (settings && settings.megaFolderUrl) {
             try {
                 if (!megaStorage.root.children) await megaStorage.root.loadAttributes();
-                const foundCustom = await findFolderInStorage(megaStorage.root, db.settings.megaFolderUrl);
+                const foundCustom = await findFolderInStorage(megaStorage.root, settings.megaFolderUrl);
                 if (foundCustom) baseMegaFolder = foundCustom;
             } catch (e) { console.log("Folder custom tidak ditemukan, menggunakan root folder."); }
         }
@@ -175,7 +188,9 @@ app.post('/api/photos', adminOnly, upload.array('photos', 50), async (req, res) 
         const targetMegaFolder = await getFolder(appFolder, targetAlbum.name);
 
         const uploadedPhotos = [];
-        let counter = db.photos.filter(p => p.albumId === albumId && p.categoryId === categoryId).length + 1;
+        // Hitung jumlah foto yang sudah ada di album & kategori ini untuk penomoran otomatis
+        const existingPhotosCount = await Photo.countDocuments({ albumId, categoryId });
+        let counter = existingPhotosCount + 1;
 
         for (const file of req.files) {
             const ext = path.extname(file.originalname) || '.jpg';
@@ -191,18 +206,19 @@ app.post('/api/photos', adminOnly, upload.array('photos', 50), async (req, res) 
                 megaLink = await fallbackFile.link();
             }
 
-            const newPhoto = {
-                id: 'img_' + Date.now() + Math.floor(Math.random() * 1000),
+            const newPhoto = new Photo({
+                _id: 'img_' + Date.now() + Math.floor(Math.random() * 1000),
                 albumId, categoryId, caption: caption || '',
                 megaLink: megaLink,
                 megaFileName: newFileName
-            };
-            db.photos.push(newPhoto);
-            uploadedPhotos.push(newPhoto);
+            });
+
+            await newPhoto.save();
+            // Format ulang kembalian agar 'id' dikenali frontend
+            uploadedPhotos.push({ ...newPhoto.toObject(), id: newPhoto._id });
             counter++;
         }
 
-        writeDB(db);
         res.json({ success: true, photos: uploadedPhotos });
     } catch (error) {
         console.error("Critical Upload Error:", error);
@@ -212,38 +228,34 @@ app.post('/api/photos', adminOnly, upload.array('photos', 50), async (req, res) 
 
 // ================= API DELETE (KEBAL ERROR MEGA) =================
 app.delete('/api/photos/:id', adminOnly, async (req, res) => {
-    const db = readDB();
-    const photo = db.photos.find(p => p.id === req.params.id);
+    const photo = await Photo.findById(req.params.id);
 
     if (photo && photo.megaFileName) {
         try {
-            const alb = db.albums.find(a => a.id === photo.albumId);
+            const alb = await Album.findById(photo.albumId);
             const appF = await getFolder(megaStorage.root, 'MoodboardApps');
             const albF = await getFolder(appF, alb ? alb.name : '');
             if (albF && albF.children) {
                 const targetFile = albF.children.find(f => f.name === photo.megaFileName);
                 if (targetFile) await targetFile.delete();
             }
-        } catch (e) { console.log("Hapus fisik MEGA diabaikan/gagal, tetap menghapus dari aplikasi."); }
+        } catch (e) { console.log("Hapus fisik MEGA diabaikan/gagal, tetap menghapus dari aplikasi database."); }
     }
 
-    db.photos = db.photos.filter(p => p.id !== req.params.id);
-    writeDB(db); res.json({ success: true });
+    await Photo.findByIdAndDelete(req.params.id);
+    res.json({ success: true });
 });
 
-app.delete('/api/categories/:id', adminOnly, (req, res) => {
-    const db = readDB();
-    db.categories = db.categories.filter(c => c.id !== req.params.id);
-    db.photos = db.photos.filter(p => p.categoryId !== req.params.id); // Cascade
-    writeDB(db); res.json({ success: true });
+app.delete('/api/categories/:id', adminOnly, async (req, res) => {
+    await Category.findByIdAndDelete(req.params.id);
+    await Photo.deleteMany({ categoryId: req.params.id }); // Hapus semua foto berantai (Cascade)
+    res.json({ success: true });
 });
 
-app.delete('/api/albums/:id', adminOnly, (req, res) => {
-    const db = readDB();
-    db.albums = db.albums.filter(a => a.id !== req.params.id);
-    db.categories = db.categories.filter(c => c.albumId !== req.params.id);
-    db.photos = db.photos.filter(p => p.albumId !== req.params.id); // Cascade
-    writeDB(db); res.json({ success: true });
+app.delete('/api/albums/:id', adminOnly, async (req, res) => {
+    await Album.findByIdAndDelete(req.params.id);
+    await Photo.deleteMany({ albumId: req.params.id }); // Hapus semua foto berantai (Cascade)
+    res.json({ success: true });
 });
 
 // ================= PROXY CACHE LOAD CEPAT =================
@@ -254,9 +266,13 @@ app.get('/api/proxy-image', async (req, res) => {
         const file = File.fromURL(url);
         await file.loadAttributes();
         res.setHeader('Content-Type', 'image/jpeg');
-        res.setHeader('Cache-Control', 'public, max-age=2592000'); // Cache 30 Hari
+        res.setHeader('Cache-Control', 'public, max-age=2592000'); // Cache 30 Hari di memori HP
         file.download().pipe(res);
     } catch (e) { res.status(500).send('Gagal'); }
 });
 
-app.listen(3000, () => console.log('Server berjalan di port 3000'));
+// ================= KONFIGURASI VERCEL =================
+if (process.env.NODE_ENV !== 'production') {
+    app.listen(3000, () => console.log('Server berjalan di port 3000'));
+}
+module.exports = app;
