@@ -24,133 +24,265 @@ async function handleLogin() {
     if (data.success) {
         document.getElementById('view-login').classList.add('hidden');
         document.getElementById('app').classList.remove('hidden');
-        
-        if (currentRole === 'admin') {
-            document.querySelectorAll('#admin-add-album-btn, #admin-add-cat-btn, #admin-add-photo-btn').forEach(el => el.classList.remove('hidden'));
-        }
         loadData();
     } else {
-        alert(data.message);
+        alert(data.message || 'Login Gagal');
     }
 }
 
-async function loadData() {
-    const res = await fetch('/api/data');
-    appData = await res.json();
-    renderAlbums();
+async function loadData(targetAlbumId = null) {
+    try {
+        const res = await fetch('/api/data');
+        const data = await res.json();
+        appData = data;
+
+        if (!activeAlbumId) {
+            renderAlbums();
+        }
+    } catch (e) {
+        console.error("Gagal sinkronisasi data.");
+    }
 }
 
 function renderAlbums() {
-    showAlbumsView();
-    const list = document.getElementById('albums-list');
-    list.innerHTML = appData.albums.map(alb => `
-        <div onclick="viewAlbum('${alb.id}')" class="bg-gray-800 p-5 rounded-xl border border-gray-700 flex justify-between items-center cursor-pointer active:scale-95 transition-transform">
-            <span class="font-bold text-lg text-white">📁 ${alb.name}</span>
-            <span class="text-gray-400 text-sm">&rarr;</span>
-        </div>
-    `).join('');
-}
+    const container = document.getElementById('albums-container');
+    container.innerHTML = '';
 
-function viewAlbum(albumId) {
-    activeAlbumId = albumId;
-    document.getElementById('view-albums').classList.add('hidden');
-    document.getElementById('view-album-detail').classList.remove('hidden');
-    
-    // Filter Kategori milik Album ini
-    const cats = appData.categories.filter(c => c.albumId === albumId);
-    const tabContainer = document.getElementById('categories-tabs');
-    
-    if (cats.length > 0) {
-        activeCategoryId = cats[0].id;
-        tabContainer.innerHTML = cats.map(c => `
-            <button onclick="switchCategory('${c.id}')" id="tab-${c.id}" class="px-4 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap bg-gray-800 text-gray-300">
-                ${c.name}
-            </button>
-        `).join('');
-        switchCategory(activeCategoryId);
-    } else {
-        tabContainer.innerHTML = '<span class="text-xs text-gray-500">Belum ada kategori section</span>';
-        document.getElementById('photos-grid').innerHTML = '';
+    // Fitur Tambah Album untuk Admin
+    if (currentRole === 'admin') {
+        const addCard = document.createElement('div');
+        addCard.className = 'p-6 bg-gray-800 rounded-xl border border-dashed border-gray-600 flex flex-col items-center justify-center cursor-pointer hover:border-blue-500 transition';
+        addCard.innerHTML = '<i class="fas fa-plus text-2xl mb-2 text-gray-400"></i><span class="text-gray-400 font-medium">Tambah Album Baru</span>';
+        addCard.onclick = createAlbum;
+        container.appendChild(addCard);
     }
-}
 
-function switchCategory(catId) {
-    activeCategoryId = catId;
-    // Update styling tab aktif
-    appData.categories.forEach(c => {
-        const btn = document.getElementById(`tab-${c.id}`);
-        if(btn) btn.className = c.id === catId ? 'px-4 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap bg-blue-600 text-white' : 'px-4 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap bg-gray-800 text-gray-300';
+    appData.albums.forEach(album => {
+        const card = document.createElement('div');
+        card.className = 'bg-gray-800 rounded-xl p-6 shadow-lg hover:shadow-2xl transition transform hover:-translate-y-1 cursor-pointer flex flex-col justify-between relative';
+
+        let deleteBtn = '';
+        if (currentRole === 'admin') {
+            deleteBtn = `<button onclick="deleteAlbum(event, '${album.id}')" class="absolute top-3 right-3 text-gray-500 hover:text-red-500 p-2"><i class="fas fa-trash"></i></button>`;
+        }
+
+        card.innerHTML = `
+            ${deleteBtn}
+            <div onclick="viewAlbum('${album.id}')" class="pt-4">
+                <i class="fas fa-folder text-yellow-500 text-4xl mb-4"></i>
+                <h3 class="text-xl font-bold text-white mb-1 truncate">${album.name}</h3>
+                <p class="text-gray-400 text-sm">${countPhotosInAlbum(album.id)} Foto</p>
+            </div>
+        `;
+        container.appendChild(card);
     });
-    
-    // Render Foto
-    const targetPhotos = appData.photos.filter(p => p.categoryId === catId);
-    const grid = document.getElementById('photos-grid');
-    grid.innerHTML = targetPhotos.map(p => `
-        <div class="bg-gray-800 rounded-xl overflow-hidden border border-gray-700 relative">
-            <img src="/api/proxy-image?url=${encodeURIComponent(p.megaLink)}" alt="pose" class="w-full h-40 object-cover bg-gray-900">
-            <div class="p-2 bg-gray-800/90 text-[11px] text-gray-300 text-center">${p.caption}</div>
-        </div>
-    `).join('');
 }
 
-function showAlbumsView() {
-    document.getElementById('view-albums').classList.remove('hidden');
-    document.getElementById('view-album-detail').classList.add('hidden');
+function countPhotosInAlbum(albumId) {
+    return appData.photos.filter(p => p.albumId === albumId).length;
 }
 
-// ================= FUNGSI AKSI ADMIN (CRUD PROMPT) =================
-async function openAddAlbumModal() {
-    const name = prompt("Masukkan nama album baru (Contoh: Wisuda, Prewedding):");
+async function createAlbum() {
+    const name = prompt("Masukkan nama album baru:");
     if (!name) return;
-    await fetch('/api/albums', {
+    const res = await fetch('/api/albums', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name })
     });
-    loadData();
+    if (res.ok) {
+        loadData();
+    }
 }
 
-async function openAddCatModal() {
-    const name = prompt("Masukkan nama section baru (Contoh: Wide, CloseUp):");
+async function deleteAlbum(e, id) {
+    e.stopPropagation();
+    if (!confirm("Hapus album ini beserta seluruh kategori dan foto di dalamnya?")) return;
+    const res = await fetch(`/api/albums/${id}`, { method: 'DELETE' });
+    if (res.ok) loadData();
+}
+
+function viewAlbum(albumId, targetCategoryId = null) {
+    activeAlbumId = albumId;
+    const album = appData.albums.find(a => a.id === albumId);
+    document.getElementById('album-title').innerText = album ? album.name : 'Album';
+
+    document.getElementById('view-albums').classList.add('hidden');
+    document.getElementById('view-album-detail').classList.remove('hidden');
+
+    renderCategories(targetCategoryId);
+}
+
+function showAlbumsView() {
+    activeAlbumId = null;
+    activeCategoryId = null;
+    document.getElementById('view-album-detail').classList.add('hidden');
+    document.getElementById('view-albums').classList.remove('hidden');
+    renderAlbums();
+}
+
+function renderCategories(targetCategoryId = null) {
+    const container = document.getElementById('categories-tabs');
+    container.innerHTML = '';
+
+    const albumCats = appData.categories.filter(c => c.albumId === activeAlbumId);
+
+    if (albumCats.length > 0) {
+        activeCategoryId = targetCategoryId || albumCats[0].id;
+    } else {
+        activeCategoryId = null;
+    }
+
+    albumCats.forEach(cat => {
+        const btn = document.createElement('button');
+        const isActive = cat.id === activeCategoryId;
+        btn.className = `px-4 py-2 rounded-lg font-medium transition whitespace-nowrap flex items-center gap-2 ${isActive ? 'bg-blue-600 text-white shadow' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`;
+
+        let delIcon = '';
+        if (currentRole === 'admin') {
+            delIcon = `<i onclick="deleteCategory(event, '${cat.id}')" class="fas fa-times-circle ml-1 hover:text-red-400"></i>`;
+        }
+
+        btn.innerHTML = `<span>${cat.name}</span> ${delIcon}`;
+        btn.onclick = () => switchCategory(cat.id);
+        container.appendChild(btn);
+    });
+
+    if (currentRole === 'admin') {
+        const addBtn = document.createElement('button');
+        addBtn.className = 'px-4 py-2 rounded-lg bg-gray-800 text-dashed border border-gray-600 text-gray-400 hover:border-blue-500 transition';
+        addBtn.innerHTML = '<i class="fas fa-plus mr-1"></i> Kategori';
+        addBtn.onclick = createCategory;
+        container.appendChild(addBtn);
+    }
+
+    renderPhotos();
+}
+
+function switchCategory(catId) {
+    activeCategoryId = catId;
+    const tabs = document.getElementById('categories-tabs').children;
+    const albumCats = appData.categories.filter(c => c.albumId === activeAlbumId);
+
+    albumCats.forEach((cat, idx) => {
+        if (tabs[idx]) {
+            const isActive = cat.id === catId;
+            tabs[idx].className = `px-4 py-2 rounded-lg font-medium transition whitespace-nowrap flex items-center gap-2 ${isActive ? 'bg-blue-600 text-white shadow' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`;
+        }
+    });
+
+    renderPhotos();
+}
+
+async function createCategory() {
+    const name = prompt("Nama Kategori Baru (Misal: CLOSE UP, WIDE):");
     if (!name) return;
-    await fetch('/api/categories', {
+    const res = await fetch('/api/categories', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ albumId: activeAlbumId, name })
+        body: JSON.stringify({ albumId: activeAlbumId, name: name.toUpperCase() })
     });
-    loadData(activeAlbumId);
-    setTimeout(() => viewAlbum(activeAlbumId), 500);
+    if (res.ok) {
+        const result = await res.json();
+        loadData();
+        setTimeout(() => viewAlbum(activeAlbumId, result.category.id), 500);
+    }
 }
 
+async function deleteCategory(e, id) {
+    e.stopPropagation();
+    if (!confirm("Hapus kategori ini dan semua foto di dalamnya?")) return;
+    const res = await fetch(`/api/categories/${id}`, { method: 'DELETE' });
+    if (res.ok) {
+        loadData();
+        setTimeout(() => viewAlbum(activeAlbumId), 500);
+    }
+}
+
+function renderPhotos() {
+    const container = document.getElementById('photos-grid');
+    container.innerHTML = '';
+
+    const actionPanel = document.getElementById('admin-actions-panel');
+    if (currentRole === 'admin' && activeCategoryId) {
+        actionPanel.classList.remove('hidden');
+    } else {
+        actionPanel.classList.add('hidden');
+    }
+
+    const filteredPhotos = appData.photos.filter(p => p.albumId === activeAlbumId && p.categoryId === activeCategoryId);
+
+    if (filteredPhotos.length === 0) {
+        container.innerHTML = '<div class="col-span-full py-12 text-center text-gray-500"><i class="fas fa-images text-4xl mb-2"></i><p>Belum ada foto di kategori ini.</p></div>';
+        return;
+    }
+
+    filteredPhotos.forEach(photo => {
+        const item = document.createElement('div');
+        item.className = 'group relative bg-gray-900 rounded-xl overflow-hidden shadow-md hover:shadow-xl transition aspect-[3/4] cursor-pointer';
+
+        const proxyUrl = `/api/proxy-image?url=${encodeURIComponent(photo.megaLink)}`;
+
+        item.innerHTML = `
+            <img src="${proxyUrl}" class="w-full h-full object-cover transition duration-500 group-hover:scale-105" loading="lazy">
+            <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition duration-300 flex flex-col justify-end p-4">
+                <p class="text-white font-medium text-sm line-clamp-2">${photo.caption || 'Lihat Foto'}</p>
+            </div>
+        `;
+        container.appendChild(item);
+    });
+}
+
+// ================= AMAN & TERKONTROL: UPLOAD MULTIPLE FOTO SATU PER SATU =================
 function openAddPhotoModal() {
     const fileInput = document.createElement('input');
     fileInput.type = 'file';
     fileInput.accept = 'image/*';
-    fileInput.onchange = async () => {
-        const file = fileInput.files[0];
-        if(!file) return;
-        const caption = prompt("Masukkan petunjuk singkat pose (optional):");
-        
-        const formData = new FormData();
-        formData.append('photo', file);
-        formData.append('albumId', activeAlbumId);
-        formData.append('categoryId', activeCategoryId);
-        formData.append('caption', caption);
+    fileInput.multiple = true; // Admin bebas memilih puluhan foto sekaligus
 
-        alert("Foto sedang diunggah ke MEGA. Mohon tunggu sejenak...");
-        const res = await fetch('/api/photos', { method: 'POST', body: formData });
-        if(res.ok) {
-            alert("Berhasil disimpan!");
-            loadData();
-            setTimeout(() => { viewAlbum(activeAlbumId); switchCategory(activeCategoryId); }, 600);
-        } else {
-            alert("Gagal mengunggah gambar.");
+    fileInput.onchange = async () => {
+        const files = fileInput.files;
+        if (!files || files.length === 0) return;
+
+        const caption = prompt("Masukkan caption / instruksi pose singkat (opsional):");
+
+        let sukses = 0;
+        let gagal = 0;
+
+        alert(`Memulai unggah ${files.length} foto secara berkala. Mohon jangan tutup halaman ini.`);
+
+        for (let i = 0; i < files.length; i++) {
+            const formData = new FormData();
+            formData.append('photo', files[i]); // Mengirim 1 file per request (Ringan bagi Vercel)
+            formData.append('albumId', activeAlbumId);
+            formData.append('categoryId', activeCategoryId);
+            formData.append('caption', caption || '');
+
+            console.log(`Mengirim file ke-${i + 1} dari ${files.length}...`);
+
+            try {
+                const res = await fetch('/api/photos', { method: 'POST', body: formData });
+                const result = await res.json();
+                if (res.ok && result.success) {
+                    sukses++;
+                } else {
+                    gagal++;
+                }
+            } catch (err) {
+                gagal++;
+            }
+
+            // MEMBERIKAN JEDA AMAN (DELAY 2 DETIK) AGAR AKUN MEGA TIDAK TERBLOKIR
+            if (i < files.length - 1) {
+                await new Promise(resolve => setTimeout(resolve, 2000));
+            }
         }
+
+        alert(`Proses Selesai!\nBerhasil disimpan: ${sukses}\nGagal: ${gagal}`);
+        loadData();
+        setTimeout(() => {
+            viewAlbum(activeAlbumId, activeCategoryId);
+        }, 600);
     };
     fileInput.click();
-}
-
-function logout() {
-    fetch('/api/logout', { method: 'POST' });
-    window.location.reload();
 }
