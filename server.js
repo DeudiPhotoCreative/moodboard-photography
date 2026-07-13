@@ -231,7 +231,7 @@ app.put('/api/photos/:id', adminOnly, async (req, res) => {
 });
 
 // ================= UPLOAD FOTO (DENGAN DELAY ANTI-BLOKIR MEGA) =================
-app.post('/api/photos', adminOnly, upload.array('photo', 50), async (req, res) => {
+app.post('/api/photos', adminOnly, upload.array('photos', 50), async (req, res) => {
     try {
         const { albumId, categoryId, caption } = req.body;
         if (!req.files || req.files.length === 0) return res.status(400).json({ success: false, message: 'Pilih minimal satu foto.' });
