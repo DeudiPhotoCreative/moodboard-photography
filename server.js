@@ -4,7 +4,7 @@ const { Storage, File } = require('megajs');
 const multer = require('multer');
 const path = require('path');
 const cors = require('cors');
-const mongoose = require('mongoose'); // Import Mongoose
+const mongoose = require('mongoose');
 
 const app = express();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -13,10 +13,40 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static('public'));
 
-// ================= KONEKSI MONGODB =================
-mongoose.connect(process.env.MONGODB_URI)
-    .then(() => console.log('✅ Berhasil terhubung ke MongoDB Atlas!'))
-    .catch(err => console.error('❌ Gagal terhubung ke MongoDB:', err));
+// ================= OPTIMASI KONEKSI MONGODB UNTUK VERCEL (SERVERLESS) =================
+let isConnected = false;
+
+async function connectDB() {
+    if (isConnected) return;
+    
+    if (!process.env.MONGODB_URI) {
+        throw new Error("MONGODB_URI belum diatur di Environment Variables Vercel!");
+    }
+
+    try {
+        const db = await mongoose.connect(process.env.MONGODB_URI, {
+            serverSelectionTimeoutMS: 5000 // Timeout 5 detik agar tidak menggantung
+        });
+        isConnected = db.connections[0].readyState === 1;
+        console.log('✅ Berhasil terhubung ke MongoDB Atlas!');
+    } catch (err) {
+        console.error('❌ Gagal terhubung ke MongoDB:', err.message);
+        throw err;
+    }
+}
+
+// Middleware untuk memastikan DB terhubung sebelum API dipanggil
+app.use('/api', async (req, res, next) => {
+    try {
+        await connectDB();
+        next();
+    } catch (error) {
+        res.status(500).json({ 
+            success: false, 
+            message: "Koneksi ke Database gagal: " + error.message 
+        });
+    }
+});
 
 // ================= DEFINISI STRUKTUR DATABASE (SCHEMA) =================
 const Album = mongoose.model('Album', new mongoose.Schema({
@@ -28,7 +58,7 @@ const Category = mongoose.model('Category', new mongoose.Schema({
 }, { versionKey: false }));
 
 const Photo = mongoose.model('Photo', new mongoose.Schema({
-    _id: String, albumId: String, categoryId: String, caption: String,
+    _id: String, albumId: String, categoryId: String, caption: String, 
     megaLink: String, megaFileName: String
 }, { versionKey: false }));
 
@@ -39,28 +69,20 @@ const Setting = mongoose.model('Setting', new mongoose.Schema({
 let megaStorage = null;
 let isAdminAuthenticated = false;
 
-// Helper: Format data dari MongoDB agar atribut '_id' berubah menjadi 'id' untuk menyesuaikan frontend
 const formatData = (arr) => arr.map(doc => ({ ...doc, id: doc._id }));
 
-// Helper: Cari atau Buat Folder secara aman di MEGA
 async function getFolder(parent, name) {
     try {
-        if (!parent.children) {
-            try { await parent.loadAttributes(); } catch (e) { }
-        }
+        if (!parent.children) { try { await parent.loadAttributes(); } catch (e) { } }
         let folder = parent.children && parent.children.find(f => f.directory && f.name === name);
         if (!folder) {
             folder = await parent.mkdir(name);
             if (parent.children && folder) parent.children.push(folder);
         }
         return folder || parent;
-    } catch (e) {
-        console.log("Info MEGA Folder: Menggunakan folder induk sebagai alternatif.", e.message);
-        return parent;
-    }
+    } catch (e) { return parent; }
 }
 
-// Helper: Mencari folder kustom milik Admin di dalam akun MEGA
 async function findFolderInStorage(parent, urlOrName) {
     if (!parent || !parent.children || !urlOrName) return null;
     for (const child of parent.children) {
@@ -102,34 +124,38 @@ const adminOnly = (req, res, next) => {
 };
 
 app.post('/api/settings', adminOnly, async (req, res) => {
-    await Setting.findByIdAndUpdate(
-        'global_settings',
-        { megaFolderUrl: req.body.megaFolderUrl || "" },
-        { upsert: true }
-    );
+    await Setting.findByIdAndUpdate('global_settings', { megaFolderUrl: req.body.megaFolderUrl || "" }, { upsert: true });
     const settings = await Setting.findById('global_settings').lean();
     res.json({ success: true, settings: settings });
 });
 
-// ================= API CRUD MONGODB (READ, CREATE, UPDATE) =================
+// ================= API CRUD MONGODB =================
 app.get('/api/data', async (req, res) => {
-    const albums = await Album.find().lean();
-    const categories = await Category.find().lean();
-    const photos = await Photo.find().lean();
-    const settings = await Setting.findById('global_settings').lean() || { megaFolderUrl: "" };
-
-    res.json({
-        albums: formatData(albums),
-        categories: formatData(categories),
-        photos: formatData(photos),
-        settings: settings
-    });
+    try {
+        const albums = await Album.find().lean();
+        const categories = await Category.find().lean();
+        const photos = await Photo.find().lean();
+        const settings = await Setting.findById('global_settings').lean() || { megaFolderUrl: "" };
+        
+        res.json({
+            albums: formatData(albums),
+            categories: formatData(categories),
+            photos: formatData(photos),
+            settings: settings
+        });
+    } catch (err) {
+        res.status(500).json({ success: false, message: "Gagal memuat data dari database." });
+    }
 });
 
 app.post('/api/albums', adminOnly, async (req, res) => {
-    const newAlbum = new Album({ _id: 'alb_' + Date.now(), name: req.body.name });
-    await newAlbum.save();
-    res.json({ id: newAlbum._id, name: newAlbum.name });
+    try {
+        const newAlbum = new Album({ _id: 'alb_' + Date.now(), name: req.body.name });
+        await newAlbum.save();
+        res.json({ id: newAlbum._id, name: newAlbum.name });
+    } catch (err) {
+        res.status(500).json({ success: false, message: "Gagal menyimpan album." });
+    }
 });
 
 app.put('/api/albums/:id', adminOnly, async (req, res) => {
@@ -137,16 +163,18 @@ app.put('/api/albums/:id', adminOnly, async (req, res) => {
     res.json({ success: true });
 });
 
-// KATEGORI GLOBAL: Dibuat tanpa mengikat pada album tertentu
 app.post('/api/categories', adminOnly, async (req, res) => {
-    const nameLower = req.body.name.trim().toLowerCase();
-    // Cek duplikasi kategori global menggunakan regex (case-insensitive)
-    const existing = await Category.findOne({ name: { $regex: new RegExp(`^${nameLower}$`, 'i') } });
-    if (existing) return res.json({ id: existing._id, name: existing.name });
+    try {
+        const nameLower = req.body.name.trim().toLowerCase();
+        const existing = await Category.findOne({ name: { $regex: new RegExp(`^${nameLower}$`, 'i') } });
+        if (existing) return res.json({ id: existing._id, name: existing.name });
 
-    const newCat = new Category({ _id: 'cat_' + Date.now(), name: req.body.name.trim() });
-    await newCat.save();
-    res.json({ id: newCat._id, name: newCat.name });
+        const newCat = new Category({ _id: 'cat_' + Date.now(), name: req.body.name.trim() });
+        await newCat.save();
+        res.json({ id: newCat._id, name: newCat.name });
+    } catch (err) {
+        res.status(500).json({ success: false, message: "Gagal menyimpan kategori." });
+    }
 });
 
 app.put('/api/categories/:id', adminOnly, async (req, res) => {
@@ -154,7 +182,6 @@ app.put('/api/categories/:id', adminOnly, async (req, res) => {
     res.json({ success: true });
 });
 
-// UPDATE FOTO: Bisa mengubah Caption DAN Memindahkan Kategori
 app.put('/api/photos/:id', adminOnly, async (req, res) => {
     let updateData = {};
     if (req.body.caption !== undefined) updateData.caption = req.body.caption;
@@ -163,7 +190,6 @@ app.put('/api/photos/:id', adminOnly, async (req, res) => {
     res.json({ success: true });
 });
 
-// ================= UPLOAD FOTO (RENAME: ALBUM - KATEGORI - NOMOR) =================
 app.post('/api/photos', adminOnly, upload.array('photos', 50), async (req, res) => {
     try {
         const { albumId, categoryId, caption } = req.body;
@@ -175,20 +201,18 @@ app.post('/api/photos', adminOnly, upload.array('photos', 50), async (req, res) 
 
         const settings = await Setting.findById('global_settings');
         let baseMegaFolder = megaStorage.root;
-
         if (settings && settings.megaFolderUrl) {
             try {
                 if (!megaStorage.root.children) await megaStorage.root.loadAttributes();
                 const foundCustom = await findFolderInStorage(megaStorage.root, settings.megaFolderUrl);
                 if (foundCustom) baseMegaFolder = foundCustom;
-            } catch (e) { console.log("Folder custom tidak ditemukan, menggunakan root folder."); }
+            } catch (e) { }
         }
 
         const appFolder = await getFolder(baseMegaFolder, 'MoodboardApps');
         const targetMegaFolder = await getFolder(appFolder, targetAlbum.name);
 
         const uploadedPhotos = [];
-        // Hitung jumlah foto yang sudah ada di album & kategori ini untuk penomoran otomatis
         const existingPhotosCount = await Photo.countDocuments({ albumId, categoryId });
         let counter = existingPhotosCount + 1;
 
@@ -200,8 +224,7 @@ app.post('/api/photos', adminOnly, upload.array('photos', 50), async (req, res) 
             try {
                 const megaFile = await targetMegaFolder.upload({ name: newFileName, size: file.buffer.length }, file.buffer).complete;
                 megaLink = await megaFile.link();
-            } catch (uploadErr) {
-                console.log("Upload ke subfolder mengalami kendala, mengalihkan ke root folder...", uploadErr.message);
+            } catch (err) {
                 const fallbackFile = await megaStorage.root.upload({ name: newFileName, size: file.buffer.length }, file.buffer).complete;
                 megaLink = await fallbackFile.link();
             }
@@ -209,27 +232,21 @@ app.post('/api/photos', adminOnly, upload.array('photos', 50), async (req, res) 
             const newPhoto = new Photo({
                 _id: 'img_' + Date.now() + Math.floor(Math.random() * 1000),
                 albumId, categoryId, caption: caption || '',
-                megaLink: megaLink,
-                megaFileName: newFileName
+                megaLink, megaFileName: newFileName
             });
-
             await newPhoto.save();
-            // Format ulang kembalian agar 'id' dikenali frontend
             uploadedPhotos.push({ ...newPhoto.toObject(), id: newPhoto._id });
             counter++;
         }
 
         res.json({ success: true, photos: uploadedPhotos });
     } catch (error) {
-        console.error("Critical Upload Error:", error);
-        res.status(500).json({ error: error.message || 'Terjadi kesalahan internal pada server' });
+        res.status(500).json({ error: error.message });
     }
 });
 
-// ================= API DELETE (KEBAL ERROR MEGA) =================
 app.delete('/api/photos/:id', adminOnly, async (req, res) => {
     const photo = await Photo.findById(req.params.id);
-
     if (photo && photo.megaFileName) {
         try {
             const alb = await Album.findById(photo.albumId);
@@ -239,26 +256,24 @@ app.delete('/api/photos/:id', adminOnly, async (req, res) => {
                 const targetFile = albF.children.find(f => f.name === photo.megaFileName);
                 if (targetFile) await targetFile.delete();
             }
-        } catch (e) { console.log("Hapus fisik MEGA diabaikan/gagal, tetap menghapus dari aplikasi database."); }
+        } catch (e) { }
     }
-
     await Photo.findByIdAndDelete(req.params.id);
     res.json({ success: true });
 });
 
 app.delete('/api/categories/:id', adminOnly, async (req, res) => {
     await Category.findByIdAndDelete(req.params.id);
-    await Photo.deleteMany({ categoryId: req.params.id }); // Hapus semua foto berantai (Cascade)
+    await Photo.deleteMany({ categoryId: req.params.id });
     res.json({ success: true });
 });
 
 app.delete('/api/albums/:id', adminOnly, async (req, res) => {
     await Album.findByIdAndDelete(req.params.id);
-    await Photo.deleteMany({ albumId: req.params.id }); // Hapus semua foto berantai (Cascade)
+    await Photo.deleteMany({ albumId: req.params.id });
     res.json({ success: true });
 });
 
-// ================= PROXY CACHE LOAD CEPAT =================
 app.get('/api/proxy-image', async (req, res) => {
     const { url } = req.query;
     if (!url) return res.status(400).send('URL dibutuhkan');
@@ -266,12 +281,11 @@ app.get('/api/proxy-image', async (req, res) => {
         const file = File.fromURL(url);
         await file.loadAttributes();
         res.setHeader('Content-Type', 'image/jpeg');
-        res.setHeader('Cache-Control', 'public, max-age=2592000'); // Cache 30 Hari di memori HP
+        res.setHeader('Cache-Control', 'public, max-age=2592000');
         file.download().pipe(res);
     } catch (e) { res.status(500).send('Gagal'); }
 });
 
-// ================= KONFIGURASI VERCEL =================
 if (process.env.NODE_ENV !== 'production') {
     app.listen(3000, () => console.log('Server berjalan di port 3000'));
 }
