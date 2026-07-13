@@ -76,6 +76,7 @@ let isAdminAuthenticated = false;
 
 const formatData = (arr) => arr.map(doc => ({ ...doc, id: doc._id }));
 
+// ================= FUNGSI BANTUAN MEGA =================
 async function getFolder(parent, name) {
     try {
         if (!parent.children) { try { await parent.loadAttributes(); } catch (e) { } }
@@ -229,7 +230,8 @@ app.put('/api/photos/:id', adminOnly, async (req, res) => {
     }
 });
 
-app.post('/api/photos', adminOnly, upload.array('photos', 50), async (req, res) => {
+// ================= UPLOAD FOTO (DENGAN DELAY ANTI-BLOKIR MEGA) =================
+app.post('/api/photos', adminOnly, upload.array('photo', 50), async (req, res) => {
     try {
         const { albumId, categoryId, caption } = req.body;
         if (!req.files || req.files.length === 0) return res.status(400).json({ success: false, message: 'Pilih minimal satu foto.' });
@@ -240,6 +242,7 @@ app.post('/api/photos', adminOnly, upload.array('photos', 50), async (req, res) 
 
         const settings = await Setting.findById('global_settings');
         let baseMegaFolder = megaStorage.root;
+
         if (settings && settings.megaFolderUrl) {
             try {
                 if (!megaStorage.root.children) await megaStorage.root.loadAttributes();
@@ -255,6 +258,7 @@ app.post('/api/photos', adminOnly, upload.array('photos', 50), async (req, res) 
         const existingPhotosCount = await Photo.countDocuments({ albumId, categoryId });
         let counter = existingPhotosCount + 1;
 
+        // Looping untuk upload banyak file secara berurutan
         for (const file of req.files) {
             const ext = path.extname(file.originalname) || '.jpg';
             const newFileName = `${targetAlbum.name} - ${targetCategory.name} - ${counter}${ext}`;
@@ -264,6 +268,7 @@ app.post('/api/photos', adminOnly, upload.array('photos', 50), async (req, res) 
                 const megaFile = await targetMegaFolder.upload({ name: newFileName, size: file.buffer.length }, file.buffer).complete;
                 megaLink = await megaFile.link();
             } catch (err) {
+                // Fallback jika gagal masuk folder spesifik
                 const fallbackFile = await megaStorage.root.upload({ name: newFileName, size: file.buffer.length }, file.buffer).complete;
                 megaLink = await fallbackFile.link();
             }
@@ -273,9 +278,15 @@ app.post('/api/photos', adminOnly, upload.array('photos', 50), async (req, res) 
                 albumId, categoryId, caption: caption || '',
                 megaLink, megaFileName: newFileName
             });
+
             await newPhoto.save();
             uploadedPhotos.push({ ...newPhoto.toObject(), id: newPhoto._id });
             counter++;
+
+            // --- PERBAIKAN: DELAY UPLOAD ---
+            // Memberikan jeda 2 detik (2000ms) setiap selesai upload 1 file
+            // Ini sangat penting agar MEGA tidak memblokir IP server karena rate-limit
+            await new Promise(resolve => setTimeout(resolve, 2000));
         }
 
         res.json({ success: true, photos: uploadedPhotos });
@@ -284,6 +295,7 @@ app.post('/api/photos', adminOnly, upload.array('photos', 50), async (req, res) 
     }
 });
 
+// ================= DELETE FOTO, KATEGORI, DAN ALBUM =================
 app.delete('/api/photos/:id', adminOnly, async (req, res) => {
     try {
         const photo = await Photo.findById(req.params.id);
@@ -326,6 +338,7 @@ app.delete('/api/albums/:id', adminOnly, async (req, res) => {
     }
 });
 
+// ================= IMAGE PROXY =================
 app.get('/api/proxy-image', async (req, res) => {
     const { url } = req.query;
     if (!url) return res.status(400).send('URL dibutuhkan');
