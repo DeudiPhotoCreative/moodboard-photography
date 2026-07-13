@@ -193,7 +193,7 @@ app.post('/api/categories', adminOnly, async (req, res) => {
 });
 
 // Upload Foto Tunggal (Diproses Cepat untuk Menghindari Batasan Vercel)
-app.post('/api/photos', adminOnly, upload.array('photo', 1), async (req, res) => {
+app.post('/api/photos', adminOnly, upload.any(), async (req, res) => {
     try {
         const { albumId, categoryId, caption } = req.body;
         if (!req.files || req.files.length === 0) {
