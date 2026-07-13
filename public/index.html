@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Moodboard Pose Pro</title>
+    <title>Moodboard PRO</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
@@ -104,7 +104,8 @@
             <div class="flex items-center gap-3 cursor-pointer" onclick="showAlbumsView()">
                 <div
                     class="w-8 h-8 rounded-full bg-gradient-to-tr from-blue-600 to-emerald-500 flex items-center justify-center">
-                    <i class="fas fa-layer-group text-white text-xs"></i></div>
+                    <i class="fas fa-layer-group text-white text-xs"></i>
+                </div>
                 <h1 class="font-bold text-lg text-white tracking-wide">Moodboard</h1>
             </div>
             <div class="flex items-center gap-3">
@@ -310,7 +311,7 @@
 
     <script>
         let currentRole = 'user';
-        let appData = { albums: [], categories: [], photos: [], settings: { megaFolderUrl: "" } };
+        let appData = { albums: [], categories: [], photos: [] };
         let activeAlbumId = null;
         let activeCategoryId = 'all';
         let editTarget = { type: '', id: '' };
@@ -350,49 +351,60 @@
         }
         function closeLightbox() { document.getElementById('lightbox').classList.remove('lightbox-active'); }
 
+        // Helper untuk memeriksa apakah respon server berupa JSON atau Error HTML Vercel
+        async function fetchSafeJSON(url, options = {}) {
+            try {
+                const res = await fetch(url, options);
+                const text = await res.text();
+
+                // Jika Vercel mengembalikan halaman error HTML
+                if (text.trim().startsWith('<!DOCTYPE') || text.trim().startsWith('<html')) {
+                    console.error("Vercel mengembalikan HTML Error:", text);
+                    alert("Terjadi kesalahan di server Vercel (Error 500). Pastikan MONGODB_URI sudah dipasang di pengaturan Environment Variables Vercel.");
+                    return null;
+                }
+
+                return JSON.parse(text);
+            } catch (err) {
+                console.error("Gagal membaca respon server:", err);
+                return null;
+            }
+        }
+
         async function handleAPIError(res) {
+            if (!res) return false;
             if (res.status === 403) { alert("Sesi Admin telah habis atau tidak valid. Silakan login kembali."); return false; }
             return true;
         }
 
-        // AUTH & SETTINGS
+        // AUTH
         async function handleLogin() {
             const btn = document.getElementById('btn-login');
             btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Menghubungkan...'; btn.disabled = true;
             try {
-                const res = await fetch('/api/login', {
+                const data = await fetchSafeJSON('/api/login', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ role: currentRole, email: document.getElementById('login-email').value, password: document.getElementById('login-password').value })
                 });
-                const data = await res.json();
-                if (data.success) {
+                if (data && data.success) {
                     document.getElementById('view-login').classList.add('hidden');
                     document.getElementById('app').classList.remove('hidden');
                     if (currentRole === 'admin') {
-                        document.querySelectorAll('#admin-add-album-btn, #admin-add-cat-btn, #admin-add-photo-btn, #admin-del-album-btn, #admin-edit-album-btn, #admin-settings-btn').forEach(el => el.classList.remove('hidden'));
+                        document.querySelectorAll('#admin-add-album-btn, #admin-add-cat-btn, #admin-add-photo-btn, #admin-del-album-btn, #admin-edit-album-btn').forEach(el => el.classList.remove('hidden'));
                     }
                     loadData();
-                } else { alert(data.message); }
+                } else if (data) { alert(data.message); }
             } catch (err) { alert("Tidak dapat terhubung ke server."); }
             btn.innerHTML = '<span>Masuk Aplikasi</span><i class="fas fa-arrow-right text-sm"></i>'; btn.disabled = false;
         }
 
         function logout() { fetch('/api/logout', { method: 'POST' }); window.location.reload(); }
 
-        function openSettingsModal() {
-            document.getElementById('input-mega-url').value = appData.settings ? appData.settings.megaFolderUrl : "";
-            openModal('modal-settings');
-        }
-        async function submitSettings() {
-            const url = document.getElementById('input-mega-url').value;
-            const res = await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ megaFolderUrl: url }) });
-            if (await handleAPIError(res)) { closeModal('modal-settings'); loadData(); alert("Link Folder MEGA berhasil disimpan!"); }
-        }
-
         // DATA & RENDERING
         async function loadData() {
-            const res = await fetch('/api/data');
-            appData = await res.json();
+            const data = await fetchSafeJSON('/api/data');
+            if (!data) return;
+            appData = data;
             if (!activeAlbumId) { renderAlbums(); } else { viewAlbum(activeAlbumId, activeCategoryId); }
         }
 
@@ -423,17 +435,16 @@
             document.getElementById('view-albums').classList.add('hidden');
             document.getElementById('view-album-detail').classList.remove('hidden');
 
-            // MENGGUNAKAN SEMUA KATEGORI GLOBAL
-            const cats = appData.categories;
+            const cats = appData.categories.filter(c => c.albumId === albumId);
             const tabContainer = document.getElementById('categories-tabs');
             if (cats.length > 0) {
-                let tabsHTML = `<button onclick="switchCategory('all')" id="tab-all" class="px-5 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap transition-colors border border-transparent">Semua</button>`;
-                tabsHTML += cats.map(c => `<button onclick="switchCategory('${c.id}')" id="tab-${c.id}" class="px-5 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap transition-colors border border-transparent">${c.name}</button>`).join('');
+                let tabsHTML = `<button onclick="switchCategory('all')" id="tab-all" class="px-5 py-2 rounded-full text-sm font-semibold whitespace-nowrap transition-colors border border-transparent">Semua</button>`;
+                tabsHTML += cats.map(c => `<button onclick="switchCategory('${c.id}')" id="tab-${c.id}" class="px-5 py-2 rounded-full text-sm font-semibold whitespace-nowrap transition-colors border border-transparent">${c.name}</button>`).join('');
                 tabContainer.innerHTML = tabsHTML;
                 switchCategory(activeCategoryId);
             } else {
                 activeCategoryId = 'all';
-                tabContainer.innerHTML = '<span class="text-sm text-gray-500 py-2">Belum ada kategori global. Tambahkan section dulu.</span>';
+                tabContainer.innerHTML = '<span class="text-sm text-gray-500 py-2">Belum ada kategori. Tambahkan section dulu.</span>';
                 document.getElementById('photos-grid').innerHTML = '';
                 document.getElementById('active-cat-name').innerText = '';
                 if (currentRole === 'admin') {
@@ -447,10 +458,10 @@
             const imgUrl = `/api/proxy-image?url=${encodeURIComponent(p.megaLink)}`;
             const adminBtns = currentRole === 'admin' ? `
                 <div class="absolute top-2 right-2 flex flex-col gap-1 z-20">
-                    <button onclick="event.stopPropagation(); openEditModal('photo', '${p.id}')" class="bg-yellow-500/90 hover:bg-yellow-400 w-8 h-8 rounded-full flex items-center justify-center text-white shadow-lg transition-colors" title="Edit & Pindah Kategori">
+                    <button onclick="event.stopPropagation(); openEditModal('photo', '${p.id}')" class="bg-yellow-500/90 hover:bg-yellow-400 w-8 h-8 rounded-full flex items-center justify-center text-white shadow-lg transition-colors">
                         <i class="fas fa-pen text-xs"></i>
                     </button>
-                    <button onclick="event.stopPropagation(); deletePhoto('${p.id}')" class="bg-red-600/90 hover:bg-red-500 w-8 h-8 rounded-full flex items-center justify-center text-white shadow-lg transition-colors" title="Hapus Foto">
+                    <button onclick="event.stopPropagation(); deletePhoto('${p.id}')" class="bg-red-600/90 hover:bg-red-500 w-8 h-8 rounded-full flex items-center justify-center text-white shadow-lg transition-colors">
                         <i class="fas fa-trash-alt text-xs"></i>
                     </button>
                 </div>
@@ -469,10 +480,10 @@
             const grid = document.getElementById('photos-grid');
 
             document.querySelectorAll('[id^="tab-"]').forEach(btn => {
-                btn.className = 'px-5 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-colors bg-gray-800 text-gray-400 border border-gray-700 hover:text-white';
+                btn.className = 'px-5 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors bg-gray-800 text-gray-400 border border-gray-700 hover:text-white';
             });
             const activeTab = document.getElementById(`tab-${catId}`);
-            if (activeTab) activeTab.className = 'px-5 py-1.5 rounded-full text-sm font-bold whitespace-nowrap transition-colors bg-white text-gray-900 shadow-md';
+            if (activeTab) activeTab.className = 'px-5 py-2 rounded-full text-sm font-bold whitespace-nowrap transition-colors bg-white text-gray-900 shadow-md';
 
             if (currentRole === 'admin') {
                 const isAll = (catId === 'all');
@@ -481,15 +492,14 @@
             }
 
             if (catId === 'all') {
-                document.getElementById('active-cat-name').innerText = 'Semua Kategori Global';
+                document.getElementById('active-cat-name').innerText = 'Semua Kategori';
                 grid.className = 'block';
                 let htmlContent = '';
-                const allCats = appData.categories;
-                allCats.forEach(cat => {
-                    // Hanya tampilkan foto yang milik ALBUM saat ini DAN Kategori saat ini
-                    const photosInCat = appData.photos.filter(p => p.albumId === activeAlbumId && p.categoryId === cat.id);
+                const albumCats = appData.categories.filter(c => c.albumId === activeAlbumId);
+                albumCats.forEach(cat => {
+                    const photosInCat = appData.photos.filter(p => p.categoryId === cat.id);
                     if (photosInCat.length > 0) {
-                        htmlContent += `<h5 class="text-white font-bold text-lg mt-6 mb-3 border-b border-gray-800 pb-1">${cat.name}</h5><div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 md:gap-4 mb-6">${photosInCat.map(generatePhotoHTML).join('')}</div>`;
+                        htmlContent += `<h5 class="text-white font-bold text-lg mt-6 mb-3">${cat.name}</h5><div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 md:gap-4 mb-6">${photosInCat.map(generatePhotoHTML).join('')}</div>`;
                     }
                 });
                 grid.innerHTML = htmlContent || '<div class="text-center py-10 text-gray-500 text-sm">Belum ada foto di album ini.</div>';
@@ -497,8 +507,8 @@
                 const catObj = appData.categories.find(c => c.id === catId);
                 document.getElementById('active-cat-name').innerText = catObj ? catObj.name : '';
                 grid.className = 'grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 md:gap-4';
-                const targetPhotos = appData.photos.filter(p => p.albumId === activeAlbumId && p.categoryId === catId);
-                grid.innerHTML = targetPhotos.length > 0 ? targetPhotos.map(generatePhotoHTML).join('') : '<div class="col-span-2 md:col-span-4 text-center py-10 text-gray-500 text-sm">Tidak ada foto di kategori ini untuk album saat ini.</div>';
+                const targetPhotos = appData.photos.filter(p => p.categoryId === catId);
+                grid.innerHTML = targetPhotos.length > 0 ? targetPhotos.map(generatePhotoHTML).join('') : '<div class="col-span-2 md:col-span-4 text-center py-10 text-gray-500 text-sm">Tidak ada foto di kategori ini.</div>';
             }
         }
 
@@ -508,50 +518,36 @@
             document.getElementById('view-album-detail').classList.add('hidden');
         }
 
-        // --- SUBMIT ACTIONS (ADD) ---
+        // --- SUBMIT ACTIONS ---
         async function submitAlbum() {
             const name = document.getElementById('input-album-name').value;
             if (!name) return alert('Nama tidak boleh kosong');
-            const res = await fetch('/api/albums', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
-            if (await handleAPIError(res)) { closeModal('modal-album'); loadData(); }
+            const data = await fetchSafeJSON('/api/albums', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
+            if (data && data.id) { closeModal('modal-album'); loadData(); }
         }
 
         async function submitCategory() {
             const name = document.getElementById('input-cat-name').value;
             if (!name) return alert('Nama tidak boleh kosong');
-            const res = await fetch('/api/categories', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
-            if (await handleAPIError(res)) { closeModal('modal-category'); loadData(); }
+            const data = await fetchSafeJSON('/api/categories', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ albumId: activeAlbumId, name }) });
+            if (data && data.id) { closeModal('modal-category'); loadData(); }
         }
 
-        // --- EDIT ACTIONS (UPDATE & PINDAH KATEGORI FOTO) ---
+        // --- EDIT ACTIONS ---
         function openEditModal(type, photoId = null) {
             editTarget = { type: type, id: photoId };
             const input = document.getElementById('input-edit-value');
-            const label = document.getElementById('label-edit-value');
-            const catContainer = document.getElementById('container-edit-category');
-            const catSelect = document.getElementById('select-edit-category');
-
             if (type === 'album') {
                 document.getElementById('edit-modal-title').innerText = 'Edit Nama Album';
-                label.innerText = 'Nama Album';
                 input.value = appData.albums.find(a => a.id === activeAlbumId).name;
-                catContainer.classList.add('hidden');
                 editTarget.id = activeAlbumId;
             } else if (type === 'category') {
-                document.getElementById('edit-modal-title').innerText = 'Edit Nama Section Global';
-                label.innerText = 'Nama Section';
+                document.getElementById('edit-modal-title').innerText = 'Edit Nama Section';
                 input.value = appData.categories.find(c => c.id === activeCategoryId).name;
-                catContainer.classList.add('hidden');
                 editTarget.id = activeCategoryId;
             } else if (type === 'photo') {
-                document.getElementById('edit-modal-title').innerText = 'Edit Foto & Pindah Kategori';
-                label.innerText = 'Caption / Info Pose';
-                const pObj = appData.photos.find(p => p.id === photoId);
-                input.value = pObj ? (pObj.caption || '') : '';
-
-                // Isi pilihan dropdown Pindah Kategori
-                catSelect.innerHTML = appData.categories.map(c => `<option value="${c.id}" ${pObj && pObj.categoryId === c.id ? 'selected' : ''}>${c.name}</option>`).join('');
-                catContainer.classList.remove('hidden');
+                document.getElementById('edit-modal-title').innerText = 'Edit Caption / Info Pose';
+                input.value = appData.photos.find(p => p.id === photoId).caption || '';
             }
             openModal('modal-edit');
         }
@@ -563,14 +559,10 @@
             let url = '', payload = {};
             if (editTarget.type === 'album') { url = `/api/albums/${editTarget.id}`; payload = { name: val }; }
             if (editTarget.type === 'category') { url = `/api/categories/${editTarget.id}`; payload = { name: val }; }
-            if (editTarget.type === 'photo') {
-                const newCatId = document.getElementById('select-edit-category').value;
-                url = `/api/photos/${editTarget.id}`;
-                payload = { caption: val, categoryId: newCatId };
-            }
+            if (editTarget.type === 'photo') { url = `/api/photos/${editTarget.id}`; payload = { caption: val }; }
 
-            const res = await fetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-            if (await handleAPIError(res)) { closeModal('modal-edit'); loadData(); }
+            const data = await fetchSafeJSON(url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+            if (data && data.success) { closeModal('modal-edit'); loadData(); }
         }
 
         // --- UPLOAD LOGIC ---
@@ -582,12 +574,13 @@
         }
 
         function updateUploadCategoryDropdown() {
+            const selectedAlbumId = document.getElementById('upload-album-select').value;
             const catSelect = document.getElementById('upload-cat-select');
-            const cats = appData.categories; // Menggunakan Kategori Global
+            const cats = appData.categories.filter(c => c.albumId === selectedAlbumId);
             if (cats.length > 0) {
                 catSelect.innerHTML = cats.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
                 catSelect.disabled = false;
-                if (activeCategoryId !== 'all') { catSelect.value = activeCategoryId; }
+                if (selectedAlbumId === activeAlbumId && activeCategoryId !== 'all') { catSelect.value = activeCategoryId; }
             } else {
                 catSelect.innerHTML = '<option value="">-- Buat Kategori Dulu --</option>'; catSelect.disabled = true;
             }
@@ -617,37 +610,37 @@
             for (let i = 0; i < files.length; i++) { formData.append('photos', files[i]); }
 
             try {
-                const res = await fetch('/api/photos', { method: 'POST', body: formData });
-                if (await handleAPIError(res)) {
+                const data = await fetchSafeJSON('/api/photos', { method: 'POST', body: formData });
+                if (data && data.success) {
                     closeModal('modal-upload');
                     activeAlbumId = albumId; activeCategoryId = categoryId;
                     await loadData();
-                    setTimeout(() => alert(`${files.length} foto berhasil diunggah dengan format penamaan baru!`), 300);
+                    setTimeout(() => alert(`${files.length} foto berhasil diunggah!`), 300);
                 }
             } catch (e) { alert("Terjadi kesalahan jaringan."); }
 
             btn.innerHTML = originalText; btn.disabled = false; btnCancel.disabled = false;
         }
 
-        // --- DELETE ACTIONS (ADMIN ONLY, RESILIENT TO MEGA ERRORS) ---
+        // --- DELETE ACTIONS ---
         async function deletePhoto(id) {
             if (confirm('Apakah Anda yakin ingin menghapus foto ini?')) {
-                const res = await fetch(`/api/photos/${id}`, { method: 'DELETE' });
-                if (await handleAPIError(res)) loadData();
+                const data = await fetchSafeJSON(`/api/photos/${id}`, { method: 'DELETE' });
+                if (data && data.success) loadData();
             }
         }
 
         async function deleteCategory() {
-            if (confirm('PERINGATAN GLOBAL: Kategori ini bersifat global. Menghapusnya akan menghapus section ini beserta SELURUH foto di dalamnya dari SEMUA ALBUM. Lanjutkan?')) {
-                const res = await fetch(`/api/categories/${activeCategoryId}`, { method: 'DELETE' });
-                if (await handleAPIError(res)) { activeCategoryId = 'all'; loadData(); }
+            if (confirm('Yakin ingin menghapus SECTION ini beserta semua fotonya?')) {
+                const data = await fetchSafeJSON(`/api/categories/${activeCategoryId}`, { method: 'DELETE' });
+                if (data && data.success) { activeCategoryId = 'all'; loadData(); }
             }
         }
 
         async function deleteAlbum() {
             if (confirm('PERINGATAN: Yakin menghapus ALBUM ini beserta SELURUH fotonya?')) {
-                const res = await fetch(`/api/albums/${activeAlbumId}`, { method: 'DELETE' });
-                if (await handleAPIError(res)) { showAlbumsView(); loadData(); }
+                const data = await fetchSafeJSON(`/api/albums/${activeAlbumId}`, { method: 'DELETE' });
+                if (data && data.success) { showAlbumsView(); loadData(); }
             }
         }
     </script>
